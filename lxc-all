@@ -1,0 +1,175 @@
+#!/bin/bash
+
+DIR_NAME=`dirname $0`
+BASE_NAME=`basename $0`
+source ${DIR_NAME}/.lxc-lib
+
+# provide usage guide
+USAGE_SHORT=afhorsSuU
+USAGE_LONG=autostart,freeze,help,os,restart,start,stop,unfreeze,upgrade
+USAGE_STR="\
+Usage: ${BASE_NAME} {--os|--start|--stop|--freeze|--unfreeze|--upgrade [--autostart|--restart]}
+       ${BASE_NAME} [--help]
+
+Description: Operate on all containers.
+
+Options:
+  -o, --os               list all operating system names
+  -s, --start            thaw or start each container
+  -S, --stop             stop all containers
+  -f, --freeze           freeze all running containers
+  -u, --unfreeze         thaw any frozen containers
+  -U, --upgrade          upgrade operating systems and stop
+  -a, --autostart        restart each autostart container
+  -r, --restart          restart all containers
+  -h, --help             print this usage helper\
+"
+
+#
+# process CLI parameters
+#
+
+ALL_OS=
+ALL_START=
+ALL_STOP=
+ALL_FREEZE=
+ALL_UNFREEZE=
+ALL_UPGRADE=
+ALL_AUTOSTART=
+ALL_RESTART=
+let count=0
+TEMP=$(getopt -o $USAGE_SHORT --long $USAGE_LONG -n "${BASE_NAME}" -- "$@")
+[ $? != 0 ] && usage 1 "${USAGE_STR}"
+eval set -- "$TEMP"
+while true; do
+    case "$1" in
+        -o|--os)
+            ALL_OS=true
+            count=$((count+1))
+            ;;
+        -s|--start)
+            ALL_START=true
+            count=$((count+1))
+            ;;
+        -S|--stop)
+            ALL_STOP=true
+            count=$((count+1))
+            ;;
+        -f|--freeze)
+            ALL_FREEZE=true
+            count=$((count+1))
+            ;;
+        -u|--unfreeze)
+            ALL_UNFREEZE=true
+            count=$((count+1))
+            ;;
+        -U|--upgrade)
+            ALL_UPGRADE=true
+            count=$((count+1))
+            ;;
+        -a|--autostart)
+            ALL_AUTOSTART=true
+            count=$((count+1))
+            ;;
+        -r|--restart)
+            ALL_RESTART=true
+            count=$((count+1))
+            ;;
+        -h|--help)
+            usage 0 "${USAGE_STR}"
+            ;;
+        *)
+            break
+            ;;
+    esac
+    shift
+done
+
+# check for correct usage
+[ -n "${2}" ] && usage 1 "${USAGE_STR}"
+if [ -n "${ALL_AUTOSTART}" -o -n "${ALL_RESTART}" ]; then
+    [ -z "${ALL_UPGRADE}" ] && usage 1 "${USAGE_STR}"
+    [ $count -gt 2 ] && usage 1 "${USAGE_STR}"
+else
+    [ $count -gt 1 ] && usage 1 "${USAGE_STR}"
+fi
+[ $count -eq 0 ] && usage 0 "${USAGE_STR}"
+
+#
+# function declarations
+#
+
+function start_all()
+{
+    for NAME in `lxc-ls -1`; do
+        container_start ${NAME}
+    done
+}
+
+function stop_all()
+{
+    for NAME in `lxc-ls -1`; do
+        container_stop ${NAME}
+    done
+}
+
+#
+# main procedures
+#
+
+if [ -n "${ALL_OS}" ]; then
+    # find largest container name length
+    LEN=0
+    for NAME in `lxc-ls -1`; do
+        CNL=${#NAME}
+        [ $CNL -ge $LEN ] && LEN=$CNL
+    done
+
+    for NAME in `lxc-ls -1`; do
+        CNL=${#NAME}
+        PAD=$((LEN-CNL+1))
+        OSN=`os_name ${NAME}`
+        printf "${NAME}%${PAD}s${OSN}\n"
+    done
+fi
+
+if [ -n "${ALL_START}" ]; then
+    start_all
+fi
+
+if [ -n "${ALL_STOP}" ]; then
+    stop_all
+fi
+
+if [ -n "${ALL_FREEZE}" ]; then
+    for NAME in `lxc-ls -1`; do
+        if [ -n "`lxc-info -s -n ${NAME} | grep 'RUNNING'`" ]; then
+            lxc-freeze -n ${NAME}
+        fi
+    done
+fi
+
+if [ -n "${ALL_UNFREEZE}" ]; then
+    for NAME in `lxc-ls -1`; do
+        if [ -n "`lxc-info -s -n ${NAME} | grep 'FROZEN'`" ]; then
+            lxc-unfreeze -n ${NAME}
+        fi
+    done
+fi
+
+if [ -n "${ALL_UPGRADE}" ]; then
+    start_all
+    for NAME in `lxc-ls -1`; do
+        upgrade_os ${NAME}
+    done
+    stop_all
+
+    if [ -n "${ALL_RESTART}" ]; then
+        for NAME in `lxc-ls -1`; do
+            container_start ${NAME} nodelay
+        done
+    fi
+
+    [ -n "${ALL_AUTOSTART}" ] && lxc-autostart --all
+fi
+

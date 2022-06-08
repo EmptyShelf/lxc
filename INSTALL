@@ -1,0 +1,24 @@
+#!/bin/bash
+
+[[ $EUID -eq 0 ]] && exit 0
+
+INSTALL_DIR=`dirname $0`
+COMPLETIONS_DIR=~/.local/share/bash-completion/completions
+LOCAL_BIN_DIR=~/.local/bin
+
+[ -f ${INSTALL_DIR}/lxc-all ] || exit 1
+
+mkdir -p ${LOCAL_BIN_DIR}
+cp -p ${INSTALL_DIR}/.lxc-lib ${LOCAL_BIN_DIR}/
+cp -p ${INSTALL_DIR}/lxc-* ${LOCAL_BIN_DIR}/
+
+mkdir -p ${COMPLETIONS_DIR}
+cp -p ${INSTALL_DIR}/completions/lxc-build ${COMPLETIONS_DIR}
+for lxc_ln in `ls -1 ${INSTALL_DIR}/lxc-*`; do
+    [ -z "`echo \"${lxc_ln}\" | grep 'lxc-build'`" ] && \
+        [ ! -e ${COMPLETIONS_DIR}/${lxc_ln} ] && \
+        ln -s lxc-build ${COMPLETIONS_DIR}/${lxc_ln}
+done
+
+exit 0
+

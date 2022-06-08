@@ -1,0 +1,223 @@
+# lxc-* commands completion
+
+__lxc_names() {
+    declare -a names
+    case ${words[0]} in
+        lxc-build | lxc-rsync | lxc-setup | lxc-sh )
+            mapfile -t names < <(command lxc-ls -1)
+            ;;
+        lxc-all )
+            ;;
+        *)
+            # If we are running as an alias or symlink with different name,
+            # fallback to old behaviour.
+            mapfile -t names < <(command lxc-ls -1)
+             ;;
+    esac
+
+    COMPREPLY=()
+    for i in "${!names[@]}"; do
+        # For composed names with spaces escaped by '\'.
+        names[${i}]=$(command printf "%q" "${names[${i}]}")
+        if [[ -n $(compgen -W "${names[${i}]}" -- "${cur}") ]]; then
+            COMPREPLY+=("${names[${i}]}")
+        fi
+    done
+}
+
+__lxc_users() {
+    declare -a users
+    case ${words[0]} in
+        lxc-build | lxc-rsync | lxc-sh )
+            mapfile -t users < <( for name in `lxc-ls --active`; do lxc-attach -n ${name} -- sh -c "ls -1 /home/"; done )
+            ;;
+        lxc-all | lxc-setup )
+            ;;
+        *)
+            # If we are running as an alias or symlink with different name,
+            # fallback to old behaviour.
+            mapfile -t users < <( for name in `lxc-ls --active`; do lxc-attach -n ${name} -- sh -c "ls -1 /home/"; done )
+            ;;
+    esac
+
+    COMPREPLY=()
+    for i in "${!users[@]}"; do
+        # For composed names with spaces escaped by '\'.
+        users[${i}]=$(command printf "%q" "${users[${i}]}")
+        if [[ -n $(compgen -W "${users[${i}]}" -- "${cur}") ]]; then
+            COMPREPLY+=("${users[${i}]}")
+        fi
+    done
+}
+
+__lxc_common_opt() {
+    # End of options.
+    if [[ "${words[*]}" =~ ' -- ' ]]; then
+        return 1
+    fi
+
+    case ${prev} in
+        --help | -h )
+            return 1
+            ;;
+    esac
+}
+
+_lxc_all() {
+    local cur prev words cword split
+    COMPREPLY=()
+    _init_completion -s -n : || return
+
+    __lxc_common_opt || return
+
+    case ${prev} in
+        --os | -o | --start | -s | --stop | -S | --freeze | -f | --unfreeze | -u | --upgrade | -U | --autostart | -a | --restart | -r )
+            # Only flags.
+            ;;
+    esac
+
+    $split && return
+
+    if [[ ${cur} == -* ]]; then
+        COMPREPLY=( $( compgen -W '$( _parse_help "$1" )' -- "${cur}" ) )
+        [[ ${COMPREPLY-} == *= ]] && compopt -o nospace
+        return
+    fi
+} &&
+    complete -F _lxc_all lxc-all
+
+# Let's not advertize these (hidden) parameters
+#  -p, --platform=PLAT    specify platform PLAT for container (default: archlinux)
+#  -r, --release=REL      specify release REL of container (default: current)
+#  -a, --arch=ARCH        specify architecture ARCH of container (default: amd64)"
+#  -H, --hidden           print hidden usage
+_lxc_build() {
+    local cur prev words cword split
+    COMPREPLY=()
+    _init_completion -s -n : || return
+
+    __lxc_common_opt || return
+
+    case ${prev} in
+        --name | -n )
+            __lxc_names
+            return
+            ;;
+        --user | -u )
+            __lxc_users
+            return
+            ;;
+        --build | -b )
+            _filedir
+            return
+            ;;
+        --ssh | -s | --upgrade | -U )
+            # Only flags.
+            ;;
+    esac
+
+    $split && return
+
+    if [[ ${cur} == -* ]]; then
+        COMPREPLY=( $( compgen -W '$( _parse_help "$1" )' -- "${cur}" ) )
+        [[ ${COMPREPLY-} == *= ]] && compopt -o nospace
+        return
+    fi
+} &&
+    complete -F _lxc_build lxc-build
+
+_lxc_rsync() {
+    local cur prev words cword split
+    COMPREPLY=()
+    _init_completion -s -n : || return
+
+    __lxc_common_opt || return
+
+    case ${prev} in
+        --name | -n )
+            __lxc_names
+            return
+            ;;
+        --user | -u )
+            __lxc_users
+            return
+            ;;
+        --destin | -d )
+            #_filedir
+            return
+            ;;
+        --reverse | -r )
+            # Only flags.
+            ;;
+        *)
+            _filedir
+            ;;
+    esac
+
+    $split && return
+
+    if [[ ${cur} == -* ]]; then
+        COMPREPLY=( $( compgen -W '$( _parse_help "$1" )' -- "${cur}" ) )
+        [[ ${COMPREPLY-} == *= ]] && compopt -o nospace
+        return
+    fi
+} &&
+    complete -F _lxc_rsync lxc-rsync
+
+_lxc_setup() {
+    local cur prev words cword split
+    COMPREPLY=()
+    _init_completion -s -n : || return
+
+    __lxc_common_opt || return
+
+    case ${prev} in
+        --name | -n )
+            __lxc_names
+            return
+            ;;
+        --status | -s | --autostart | -a | --destroy | -D | --config | -c | --unprivileged | -U | --systemd | -S )
+            # Only flags.
+            ;;
+    esac
+
+    $split && return
+
+    if [[ ${cur} == -* ]]; then
+        COMPREPLY=( $( compgen -W '$( _parse_help "$1" )' -- "${cur}" ) )
+        [[ ${COMPREPLY-} == *= ]] && compopt -o nospace
+        return
+    fi
+} &&
+    complete -F _lxc_setup lxc-setup
+
+_lxc_sh() {
+    local cur prev words cword split
+    COMPREPLY=()
+    _init_completion -s -n : || return
+
+    __lxc_common_opt || return
+
+    case ${prev} in
+        --name | -n )
+            __lxc_names
+            return
+            ;;
+        --user | -u )
+            __lxc_users
+            return
+            ;;
+    esac
+
+    $split && return
+
+    if [[ ${cur} == -* ]]; then
+        COMPREPLY=( $( compgen -W '$( _parse_help "$1" )' -- "${cur}" ) )
+        [[ ${COMPREPLY-} == *= ]] && compopt -o nospace
+        return
+    fi
+} &&
+    complete -F _lxc_sh lxc-sh
+
+# ex: filetype=sh
+

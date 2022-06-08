@@ -1,0 +1,155 @@
+#!/bin/bash
+
+DIR_NAME=`dirname $0`
+BASE_NAME=`basename $0`
+source ${DIR_NAME}/.lxc-lib
+
+# provide usage guide
+USAGE_SHORT=acDhn:sSU
+USAGE_LONG=autostart,config,destroy,help,name:,status,systemd,unprivileged
+USAGE_STR="\
+Usage: ${BASE_NAME} --name=NAME {--status|--autostart|--destroy}
+       ${BASE_NAME} {--config|--unprivileged|--systemd}
+       ${BASE_NAME} [--help]
+
+Description: Effect container-specific or system-level settings.
+
+Options:
+  -n, --name=NAME        specify NAME of container
+  -s, --status           show container status
+  -a, --autostart        toggle auto-start for container
+  -D, --destroy          stop and remove container
+  -c, --config           show LXC system configuration
+  -U, --unprivileged     enable unprivileged containers
+  -S, --systemd          enable user-based auto-start
+  -h, --help             print this usage helper\
+"
+
+#
+# process CLI parameters
+#
+SETUP_NAME=
+SETUP_STATUS=
+SETUP_AUTOSTART=
+SETUP_DESTROY=
+SETUP_CONFIG=
+SETUP_UNPRIVILEGED=
+SETUP_SYSTEMD=
+let count=0
+TEMP=$(getopt -o $USAGE_SHORT -l $USAGE_LONG -n "${BASE_NAME}" -- "$@")
+[ $? != 0 ] && usage 1 "${USAGE_STR}"
+eval set -- "$TEMP"
+while true; do
+    case "$1" in
+        -n|--name)
+            SETUP_NAME=$2
+            count=$((count+1))
+            shift
+            ;;
+        -s|--status)
+            SETUP_STATUS=true
+            count=$((count+1))
+            ;;
+        -a|--autostart)
+            SETUP_AUTOSTART=true
+            count=$((count+1))
+            ;;
+        -D|--destroy)
+            SETUP_DESTROY=true
+            count=$((count+1))
+            ;;
+        -c|--config)
+            SETUP_CONFIG=true
+            count=$((count+1))
+            ;;
+        -U|--unprivileged)
+            SETUP_UNPRIVILEGED=true
+            count=$((count+1))
+            ;;
+        -S|--systemd)
+            SETUP_SYSTEMD=true
+            count=$((count+1))
+            ;;
+        -h|--help)
+            usage 0 "${USAGE_STR}"
+            ;;
+        *)
+            break
+            ;;
+    esac
+    shift
+done
+
+# check for correct usage
+[ -n "${2}" ] && usage 1 "${USAGE_STR}"
+if [ -n "${SETUP_NAME}" ]; then
+    [ $count -ne 2 ] && usage 1 "${USAGE_STR}"
+else
+    [ $count -gt 1 ] && usage 1 "${USAGE_STR}"
+fi
+[ $count -eq 0 ] && usage 0 "${USAGE_STR}"
+
+#
+# function declarations
+#
+
+CONTAINER_CONFIG=${LXC_PATH}/${SETUP_NAME}/config
+[ -n "${SETUP_NAME}" ] && [ ! -f ${CONTAINER_CONFIG} ] && echo "ERROR: Container '${SETUP_NAME}' does not exist." && exit 1
+
+function container_autostart() # NAME BOOL
+{
+    NAME="${1}"
+    BOOL="${2}"
+    if [ -z "${BOOL}" ]; then
+        awk '/lxc.start.auto/{ next } /^lxc.uts.name = /{ print "lxc.start.auto = 1" } { print $0 }' ${CONTAINER_CONFIG} > /tmp/lxc-conf || exit 1
+        lxc-stop -n ${NAME} 2>/dev/null
+        mv /tmp/lxc-conf ${CONTAINER_CONFIG}
+        lxc-start -n ${NAME}
+        AUTOSTART="enabled"
+    else
+        lxc-stop -n ${NAME} 2>/dev/null
+        sed -e "/^lxc.start.auto = 1$/d" -i ${CONTAINER_CONFIG}
+        AUTOSTART="disabled"
+    fi
+    echo "Autostart: ${AUTOSTART}"
+}
+
+#
+# main procedures
+#
+
+if [ -n "${SETUP_STATUS}" ]; then
+    AUTOSTART="disabled"
+    [ -n "`cat ${CONTAINER_CONFIG} | grep 'lxc.start.auto *= *1'`" ] && AUTOSTART="enabled"
+    echo "`lxc-info -s -n ${SETUP_NAME} | sed 's|^\([^ ]\+\) \+\([^ ]\+\)|\1 \L\2|'`"
+    echo "Autostart: ${AUTOSTART}"
+fi
+
+if [ -n "${SETUP_AUTOSTART}" ]; then
+    if [ -n "`cat ${CONTAINER_CONFIG} | grep 'lxc.start.auto *= *1'`" ]; then
+        container_autostart ${SETUP_NAME} off
+    else
+        container_autostart ${SETUP_NAME}
+    fi
+fi
+
+if [ -n "${SETUP_DESTROY}" ]; then
+    [ -n "`lxc-info -s -n ${SETUP_NAME} | grep 'RUNNING'`" ] && lxc-stop -n ${SETUP_NAME}
+    if [ -n "`cat ${USER_HOME}/.ssh/config | grep \"^Host \+${SETUP_NAME}$\"`" ]; then
+        sed -e "/^Host \+${SETUP_NAME}$/,+4d" -i ${USER_HOME}/.ssh/config
+    fi
+    lxc-destroy -n ${SETUP_NAME}
+fi
+
+if [ -n "${SETUP_CONFIG}" ]; then
+    lxc_status
+fi
+
+if [ -n "${SETUP_UNPRIVILEGED}" ]; then
+    lxc_unprivileged
+fi
+
+if [ -n "${SETUP_SYSTEMD}" ]; then
+    lxc_systemd
+fi
+

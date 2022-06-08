@@ -1,0 +1,311 @@
+#!/bin/bash
+
+DIR_NAME=`dirname $0`
+BASE_NAME=`basename $0`
+source ${DIR_NAME}/.lxc-lib
+
+# provide usage guide
+USAGE_SHORT=a:b:hHn:p:r:su:U
+USAGE_LONG=arch:,build:,help,hidden,name:,platform:,release:,ssh,user:,upgrade
+
+USAGE_FMT="\
+Usage: ${BASE_NAME} --name=NAME [--user=USER [--ssh]] [--upgrade] [--build=PATH] %s
+       ${BASE_NAME} [--help] %s
+
+Description: Create or upgrade container NAME.  Build PATH sourced applications
+  using a foreign 'build' container and install them into the container NAME. %s
+
+Options:
+  -n, --name=NAME        specify NAME of container
+  -u, --user=USER        add regular USER to container
+  -s, --ssh              enable ssh tunneling (requires USER)
+  -U, --upgrade          upgrade OS and LIST_PACKAGES items
+  -b, --build=PATH       build images from sources in PATH %s
+  -h, --help             print this usage helper %s\
+"
+
+USAGE_STR1="[--platform=PLAT] [--release=REL] [--arch=ARCH]"
+USAGE_STR2="[--hidden]"
+USAGE_STR3="
+  Including hidden or 'losely' supported options."
+USAGE_STR4="
+  -p, --platform=PLAT    specify platform PLAT for container (default: archlinux)
+  -r, --release=REL      specify release REL of container (default: current)
+  -a, --arch=ARCH        specify architecture ARCH of container (default: amd64)"
+USAGE_STR5="
+  -H, --hidden           print hidden usage"
+
+USAGE_STR=`printf "${USAGE_FMT}" "" "" "" "" ""`
+USAGE_STR_HIDDEN=`printf "${USAGE_FMT}" "${USAGE_STR1}" "${USAGE_STR2}" "${USAGE_STR3}" "${USAGE_STR4}" "${USAGE_STR5}"`
+
+#
+# process CLI parameters
+#
+
+CONTAINER_NAME=
+CONTAINER_USER=
+CONTAINER_SSH=
+CONTAINER_UPGRADE=
+CONTAINER_BUILD=
+CONTAINER_PLATFORM=archlinux
+CONTAINER_RELEASE=current
+CONTAINER_ARCH=amd64
+TEMP=$(getopt -o $USAGE_SHORT -l $USAGE_LONG -n "`basename $0`" -- "$@")
+[ $? != 0 ] && usage 1 "${USAGE_STR}"
+eval set -- "$TEMP"
+while true; do
+    case "$1" in
+        -n|--name)
+            CONTAINER_NAME=$2
+            shift
+            ;;
+        -u|--user)
+            CONTAINER_USER=$2
+            shift
+            ;;
+        -s|--ssh)
+            CONTAINER_SSH=true
+            ;;
+        -U|--upgrade)
+            CONTAINER_UPGRADE=true
+            ;;
+        -b|--build)
+            CONTAINER_BUILD=$2
+            shift
+            ;;
+        # unexposed parameter
+        -p|--platform)
+            CONTAINER_PLATFORM=$2
+            shift
+            ;;
+        -r|--release)
+            CONTAINER_RELEASE=$2
+            shift
+            ;;
+        -a|--arch)
+            CONTAINER_ARCH=$2
+            shift
+            ;;
+        -h|--help)
+            usage 0 "${USAGE_STR}"
+            ;;
+        -H|--hidden)
+            usage 0 "${USAGE_STR_HIDDEN}"
+            ;;
+        *)
+            break
+            ;;
+    esac
+    shift
+done
+
+# check for correct usage
+[ -n "${2}" ] && usage 1 "${USAGE_STR}"
+[ -z "${CONTAINER_NAME}" ] && usage 1 "${USAGE_STR}"
+[ -n "${CONTAINER_SSH}" -a -z "${CONTAINER_USER}" ] && usage 1 "${USAGE_STR}"
+
+# essential packages
+LIST_PACKAGES="
+emacs-nox
+rsync
+${LIST_PACKAGES}
+" # append calling script's packages, if any
+
+# default user removal files
+LIST_USER="
+passwd
+shadow
+group
+gshadow
+subuid
+subgid
+"
+
+# container constants
+CONTAINER_ROOTFS=${LXC_PATH}/${CONTAINER_NAME}/rootfs
+CONTAINER_USER_HOME=${CONTAINER_ROOTFS}/home/${CONTAINER_USER}
+
+# check lxc configuration
+lxc_config
+
+#
+# create container
+#
+
+if [ ! -d ${CONTAINER_ROOTFS} ]; then
+    [ ! -f ${USER_HOME}/.bash_aliases ] && echo "ERROR: File '.bash_aliases' does not exist." && exit 1
+    [ ! -f ${USER_HOME}/.emacs ] && echo "ERROR: File '.emacs' does not exist." && exit 1
+
+    lxc-create -n ${CONTAINER_NAME} -t download -- -d ${CONTAINER_PLATFORM} -r ${CONTAINER_RELEASE} -a ${CONTAINER_ARCH} || exit 1
+    [ -f ${USER_HOME}/.wget-hsts ] && sudo rm -f ${USER_HOME}/.wget-hsts
+
+    # remove default users, if any
+    for U in `ls -1 ${CONTAINER_ROOTFS}/home`; do
+        sudo rm -rf ${CONTAINER_ROOTFS}/home/${U}
+        for ITEM in `echo "${LIST_USER}"`; do
+            sudo sed -e "/${U}/d" -i ${CONTAINER_ROOTFS}/etc/${ITEM}
+        done
+    done
+
+    # add sudoers support
+    sudo bash -c "cat > ${CONTAINER_ROOTFS}/etc/sudoers.d/group-sudo" << EOF
+## Allow members of group sudo to execute any command
+%sudo ALL=(ALL:ALL) ALL
+EOF
+    sudo chmod 440 ${CONTAINER_ROOTFS}/etc/sudoers.d/group-sudo
+    sudo chown -R --reference=${CONTAINER_ROOTFS}/root ${CONTAINER_ROOTFS}/etc/sudoers.d/group-sudo
+    if [ "${CONTAINER_PLATFORM}" = "ubuntu" ]; then
+        sudo rm -f ${CONTAINER_ROOTFS}/etc/sudoers.d/90-lxd
+
+        # dhcpcd should not expect net device info from udev
+        sudo bash -c "cat >> ${CONTAINER_ROOTFS}/etc/dhcpcd.conf" << EOF
+nodev
+EOF
+    fi
+
+    # update /etc/skel + /root folders
+    if [ "${CONTAINER_PLATFORM}" = "archlinux" ]; then
+        sudo bash -c "cat >> ${CONTAINER_ROOTFS}/etc/skel/.bashrc" << EOF
+
+if [ -f ~/.bash_aliases ]; then
+    . ~/.bash_aliases
+fi
+EOF
+    fi
+    sudo cp ${USER_HOME}/{.bash_aliases,.emacs} ${CONTAINER_ROOTFS}/etc/skel/
+    sudo chown -R --reference=${CONTAINER_ROOTFS}/root ${CONTAINER_ROOTFS}/etc/skel
+    sudo cp -a ${CONTAINER_ROOTFS}/etc/skel/.??* ${CONTAINER_ROOTFS}/root/
+    sudo chown -R --reference=${CONTAINER_ROOTFS}/root ${CONTAINER_ROOTFS}/root
+
+    CONTAINER_UPGRADE=true
+fi
+
+#
+# create user
+#
+
+if [ -n "${CONTAINER_USER}" -a ! -d "${CONTAINER_USER_HOME}" ]; then
+    # start container
+    container_start ${CONTAINER_NAME} nodelay
+
+    # add user + home + sudoers
+    lxc-attach -n ${CONTAINER_NAME} -- useradd -m ${CONTAINER_USER} || exit 1
+    [ -n "`sudo grep 'sudo[;]' ${CONTAINER_ROOTFS}/etc/group`" ] ||
+        lxc-attach -n ${CONTAINER_NAME} -- groupadd -r sudo || exit 1
+    [ -n "`sudo grep 'sudo[:]' ${CONTAINER_ROOTFS}/etc/group | grep '[:]${CONTAINER_USER}'`" ] ||
+        lxc-attach -n ${CONTAINER_NAME} -- usermod -aG sudo ${CONTAINER_USER} || exit 1
+
+    # update user password
+    lxc-attach -n ${CONTAINER_NAME} -- passwd -d ${CONTAINER_USER}
+    lxc-attach -n ${CONTAINER_NAME} -- passwd -e ${CONTAINER_USER}
+    echo "New user: ${CONTAINER_USER}"
+    lxc-attach -n ${CONTAINER_NAME} -- su - ${CONTAINER_USER} -c exit
+fi
+
+#
+# upgrade OS and install new packages
+#
+
+if [ -n "${CONTAINER_UPGRADE}" ]; then
+    # start container
+    container_start ${CONTAINER_NAME}
+
+    # upgrade OS
+    upgrade_os ${CONTAINER_NAME}
+
+    # add new packages, if any
+    for PACKAGE in `echo "${LIST_PACKAGES}"`; do
+        package_install ${CONTAINER_NAME} ${PACKAGE}
+    done
+fi
+
+#
+# install SSH server
+#
+
+if [ -n "${CONTAINER_SSH}" ]; then
+    [ ! -f ${USER_HOME}/.ssh/id_rsa.pub ] && echo "ERROR: File '.ssh/id_rsa.pub' does not exist." && exit 1
+    [ -f ${CONTAINER_USER_HOME}/.ssh/authorized_keys ] && echo "ERROR: SSH appears to have been installed." && exit 1
+
+    # add authorized keys
+    sudo mkdir -m 700 ${CONTAINER_USER_HOME}/.ssh
+    sudo cp ${USER_HOME}/.ssh/id_rsa.pub ${CONTAINER_USER_HOME}/.ssh/authorized_keys
+    sudo chmod 600 ${CONTAINER_USER_HOME}/.ssh/authorized_keys
+    sudo chown -R --reference=${CONTAINER_USER_HOME} ${CONTAINER_USER_HOME}
+
+    # start container
+    container_start ${CONTAINER_NAME}
+
+    # upgrade OS
+    upgrade_os ${CONTAINER_NAME}
+
+    # add + start ssh server
+    if [ "${CONTAINER_PLATFORM}" = "archlinux" ]; then
+        package_install ${CONTAINER_NAME} openssh || exit 1
+
+        # enable ssh server daemon
+        lxc-attach -n ${CONTAINER_NAME} -- systemctl enable sshd.service || exit 1
+        lxc-attach -n ${CONTAINER_NAME} -- systemctl start sshd.service || exit 1
+    elif [ "${CONTAINER_PLATFORM}" = "ubuntu" ]; then
+        package_install ${CONTAINER_NAME} ssh || exit 1
+    else
+        echo "ERROR: Unsupported platform (${CONTAINER_PLATFORM})." && exit 1
+    fi
+
+    # remove old host reference, if any
+    ssh_host_remove ${CONTAINER_NAME}
+
+    # add new host reference
+    ssh_host_add ${CONTAINER_NAME} ${CONTAINER_USER}
+fi
+
+#
+# use foreign 'build' container
+#
+
+# 'build' container constants
+BUILD_USER=root
+BUILD_ROOTFS=${LXC_PATH}/build/rootfs
+BUILD_USER_HOME=${BUILD_ROOTFS}/${BUILD_USER}
+
+# local container constants
+CONTAINER_ROOT_HOME=${CONTAINER_ROOTFS}/root
+
+if [ -n "${CONTAINER_BUILD}" ]; then
+    [ ! -d ${BUILD_ROOTFS} ] && echo "ERROR: Container does not exist (build)." && exit 1
+
+    # find regular user
+    ATTACH_USER=
+    for RU in `ls -1 ${BUILD_ROOTFS}/home`; do
+        ATTACH_USER=${RU}
+        BUILD_USER=${RU}
+        BUILD_USER_HOME=${BUILD_ROOTFS}/home/${BUILD_USER}
+        break # stop at first regular user
+    done
+
+    # copy <source>/src to <build-container>/<user>/ (and chown to the <user> UID)
+    sudo rsync -avz ${CONTAINER_BUILD}/src ${BUILD_USER_HOME}/
+    sudo chown -R --reference=${BUILD_USER_HOME} ${BUILD_USER_HOME}/src
+
+    # start <build-container> container
+    container_start build
+
+    # attach to <build-container> and run ~/src/build
+    lxc-attach -n build -- su - ${ATTACH_USER} -c "~/src/build" || exit 1
+
+    # move <build-container>/<user>/src to <local-container>/root/ (and chown to the root UID)
+    [ "${BUILD_USER_HOME}" != "${CONTAINER_ROOT_HOME}" ] && sudo mv ${BUILD_USER_HOME}/src ${CONTAINER_ROOT_HOME}/
+    sudo chown -R --reference=${CONTAINER_ROOT_HOME} ${CONTAINER_ROOT_HOME}/src
+
+    # start <local-container> container
+    container_start ${CONTAINER_NAME}
+
+    # attach to <local-container> and run ~/src/install
+    lxc-attach -n ${CONTAINER_NAME} -- su - -c "~/src/install" || exit 1
+
+    # move <local-container>/src to <source>/dist (and chown to your UID)
+    sudo rm -rf ${CONTAINER_BUILD}/dist
+    sudo mv ${CONTAINER_ROOT_HOME}/src ${CONTAINER_BUILD}/dist
+    sudo chown -R --reference=${CONTAINER_BUILD} ${CONTAINER_BUILD}/dist # see <repo>/.gitignore
+fi
+

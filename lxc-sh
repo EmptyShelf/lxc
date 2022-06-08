@@ -1,0 +1,69 @@
+#!/bin/bash
+
+DIR_NAME=`dirname $0`
+BASE_NAME=`basename $0`
+source ${DIR_NAME}/.lxc-lib
+
+# provide usage guide
+USAGE_SHORT=hn:u:
+USAGE_LONG=help,name:,user:
+USAGE_STR="\
+Usage: ${BASE_NAME} --name=NAME [--user=USER]
+       ${BASE_NAME} [--help]
+
+Description: Connect to container via shell access.
+
+Options:
+  -n, --name=NAME        specify NAME of container
+  -u, --user=USER        connect as regular USER
+  -h, --help             print this usage helper\
+"
+
+#
+# process CLI parameters
+#
+CONTAINER_NAME=
+CONTAINER_USER=
+TEMP=$(getopt -o $USAGE_SHORT -l $USAGE_LONG -n "${BASE_NAME}" -- "$@")
+[ $? != 0 ] && usage 1 "${USAGE_STR}"
+eval set -- "$TEMP"
+while true; do
+    case "$1" in
+        -n|--name)
+            CONTAINER_NAME=$2
+            shift
+            ;;
+        -u|--user)
+            CONTAINER_USER=$2
+            shift
+            ;;
+        -h|--help)
+            usage 0 "${USAGE_STR}"
+            ;;
+        *)
+            break
+            ;;
+    esac
+    shift
+done
+
+# check for correct usage
+[ -n "${2}" ] && usage 1 "${USAGE_STR}"
+[ -z "${CONTAINER_NAME}" ] && usage 1 "${USAGE_STR}"
+
+CONTAINER_ROOTFS=${LXC_PATH}/${CONTAINER_NAME}/rootfs
+CONTAINER_USER_HOME=${CONTAINER_ROOTFS}/home/${CONTAINER_USER}
+
+[ ! -d ${CONTAINER_ROOTFS} ] && echo "ERROR: Container does not exist (${CONTAINER_NAME})." && exit 1
+[ -n "${CONTAINER_USER}" ] && [ ! -d ${CONTAINER_USER_HOME} ] && echo "ERROR: User does not exist (${CONTAINER_USER})." && exit 1
+
+#
+# main procedure
+#
+
+# start container
+container_start ${CONTAINER_NAME}
+
+# attach to shell
+lxc-attach -n  ${CONTAINER_NAME} -- su - ${CONTAINER_USER} || exit 1
+

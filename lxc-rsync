@@ -1,0 +1,105 @@
+#!/bin/bash
+
+RSYNC_FLAGS=-avz
+
+DIR_NAME=`dirname $0`
+BASE_NAME=`basename $0`
+source ${DIR_NAME}/.lxc-lib
+
+# provide usage guide
+USAGE_SHORT=d:hn:ru:
+USAGE_LONG=dir:,help,name:,reverse,user:
+USAGE_STR="\
+Usage: ${BASE_NAME} --name=NAME [--user=USER] [--destin=DIR] [--reverse] <dir-or-file> [...]
+       ${BASE_NAME} [--help]
+
+Description: Transfer local files and directories (<dir-or-file> [...]) into a container.
+
+Options:
+  -n, --name=NAME        specify NAME of container
+  -u, --user=USER        target /home/USER (vs /root)
+  -d, --destin=DIR       specify destination DIR (default: ~/)
+  -r, --reverse          transfer from container to local filesystem
+  -h, --help             print this usage helper
+
+NOTE:
+When --reverse is active, --destin=DIR refers to the local filesystem.
+Both relative and hard paths are supported, throughout.\
+"
+
+#
+# process CLI parameters
+#
+CONTAINER_NAME=
+CONTAINER_USER=
+CONTAINER_DESTIN=
+CONTAINER_REVERSE=
+TEMP=$(getopt -o $USAGE_SHORT -l $USAGE_LONG -n "${BASE_NAME}" -- "$@")
+[ $? != 0 ] && usage 1 "${USAGE_STR}"
+eval set -- "$TEMP"
+while true; do
+    case "$1" in
+        -n|--name)
+            CONTAINER_NAME=$2
+            shift
+            ;;
+        -u|--user)
+            CONTAINER_USER=$2
+            shift
+            ;;
+        -d|--destin)
+            CONTAINER_DESTIN=$2
+            shift
+            ;;
+        -r|--reverse)
+            CONTAINER_REVERSE=true
+            ;;
+        -h|--help)
+            usage 0 "${USAGE_STR}"
+            ;;
+        *)
+            break
+            ;;
+    esac
+    shift
+done
+shift
+
+# check for correct usage
+[ -n "${2}" ] && usage 1 "${USAGE_STR}"
+[ -z "${CONTAINER_NAME}" ] && usage 1 "${USAGE_STR}"
+
+CONTAINER_SOURCE="${@}"
+CONTAINER_ROOTFS=${LXC_PATH}/${CONTAINER_NAME}/rootfs
+CONTAINER_USER_HOME=${CONTAINER_ROOTFS}/home/${CONTAINER_USER}
+
+[ -z "${CONTAINER_SOURCE}" ] && echo "ERROR: No directories or files specified for transfer." && usage 1 "${USAGE_STR}"
+[ ! -d ${CONTAINER_ROOTFS} ] && echo "ERROR: Container '${CONTAINER_NAME}' does not exist." && exit 1
+[ -n "${CONTAINER_USER}" ] && [ ! -d ${CONTAINER_USER_HOME} ] && echo "ERROR: User '${CONTAINER_USER}' does not exist." && exit 1
+
+#
+# main procedure
+#
+
+CONTAINER_PATH=${CONTAINER_ROOTFS}/root
+[ -n "${CONTAINER_USER}" ] && CONTAINER_PATH=${CONTAINER_USER_HOME}
+if [ -z "${CONTAINER_REVERSE}" ]; then
+    [ -n "${CONTAINER_DESTIN}" ] && CONTAINER_PATH=${CONTAINER_PATH}/${CONTAINER_DESTIN}
+    [ ! -e ${CONTAINER_PATH} ] && echo "ERROR: Path does not exist (${CONTAINER_PATH})." && exit 1
+
+    for SRC in `echo "${CONTAINER_SOURCE}"`; do
+        sudo rsync ${RSYNC_FLAGS} "${SRC}" "${CONTAINER_PATH}/"
+        sudo chown -R --reference=${CONTAINER_PATH} ${CONTAINER_PATH}/${SRC}
+    done
+else
+    LOCAL_PATH=.
+    [ -n "${CONTAINER_DESTIN}" ] && LOCAL_PATH=${CONTAINER_DESTIN}
+    [ ! -e ${CONTAINER_PATH} ] && echo "ERROR: Path does not exist (${CONTAINER_PATH})." && exit 1
+    [ ! -e ${LOCAL_PATH} ] && echo "ERROR: Path does not exist (${LOCAL_PATH})." && exit 1
+
+    for SRC in `echo "${CONTAINER_SOURCE}"`; do
+        sudo rsync ${RSYNC_FLAGS} "${CONTAINER_PATH}/${SRC}" "${LOCAL_PATH}/"
+        sudo chown -R --reference=${LOCAL_PATH} ${LOCAL_PATH}/${SRC}
+    done
+fi
+
