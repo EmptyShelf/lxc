@@ -2,11 +2,11 @@
 
 ### What is this repository for? ###
 
-This repo supports tools that extend regular LXC utilities.  These extensions provide container maintenance, specific to my development environment and style, including:
+This repo supports tools that extend regular LXC utilities.  These extensions provide container maintenance (specific to my own development style), including:
 
 * Automatic start or unfreeze of containers before the intended operation begins (rather than throwing an error because a container is stopped or frozen -- yes, a pet peeve!)
-* Support for a foreign 'build' container so that build tools can be installed in one place, while built images can be imported into the local container (freeing up space for many containers)
-* Batch operations for all containers (in unison)
+* Support for a foreign 'build' container so that build tools can be installed in one place, while built images can be imported into the local container (freeing up space and saving installation time)
+* Batch operations for containers, in unison
 * Easy LXC environment set up and configuration
 * Bash completion support
 
@@ -14,7 +14,7 @@ This repo supports tools that extend regular LXC utilities.  These extensions pr
 
 The following tools are included:
 
-* **lxc-all** - Operate on all containers, including
+* **lxc-all** - Operate on all containers, regardless of state, including
     * Start all
     * Stop all
     * Freeze all
