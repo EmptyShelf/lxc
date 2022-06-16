@@ -5,8 +5,8 @@ BASE_NAME=`basename $0`
 source ${DIR_NAME}/.lxc-lib
 
 # provide usage guide
-USAGE_SHORT=a:b:hHn:p:r:su:U
-USAGE_LONG=arch:,build:,help,hidden,name:,platform:,release:,ssh,user:,upgrade
+USAGE_SHORT=a:b:d:hHlLn:r:su:U
+USAGE_LONG=arch:,build:,dist:,help,hidden,list,listall,name:,release:,ssh,user:,upgrade
 
 USAGE_FMT="\
 Usage: ${BASE_NAME} --name=NAME [--user=USER [--ssh]] [--upgrade] [--build=PATH] %s
@@ -21,22 +21,24 @@ Options:
   -s, --ssh              enable ssh tunneling (requires USER)
   -U, --upgrade          upgrade OS and LIST_PACKAGES items
   -b, --build=PATH       build images from sources in PATH %s
-  -h, --help             print this usage helper %s\
+  -h, --help             print this usage helper %s
 "
 
-USAGE_STR1="[--platform=PLAT] [--release=REL] [--arch=ARCH]"
-USAGE_STR2="[--hidden]"
+USAGE_STR1="[--show] [--distrto=DIST] [--release=RELEASE] [--arch=ARCH]"
+USAGE_STR2="[--list] [--listall] [--hidden]"
 USAGE_STR3="
   Including hidden or 'losely' supported options."
 USAGE_STR4="
-  -p, --platform=PLAT    specify platform PLAT for container (default: archlinux)
-  -r, --release=REL      specify release REL of container (default: current)
-  -a, --arch=ARCH        specify architecture ARCH of container (default: amd64)"
+  -d, --distrto=DIST     specify distribution DIST for container (default: archlinux)
+  -r, --release=RELEASE  specify release RELEASE of container (default: current)
+  -a, --arch=ARCH        specify architecture ARCH of container (default: amd64)
+  -l, --list             list available distributions, releases and architectures
+  -L, --listall          list all available distributions, releases and architectures"
 USAGE_STR5="
   -H, --hidden           print hidden usage"
 
-USAGE_STR=`printf "${USAGE_FMT}" "" "" "" "" ""`
-USAGE_STR_HIDDEN=`printf "${USAGE_FMT}" "${USAGE_STR1}" "${USAGE_STR2}" "${USAGE_STR3}" "${USAGE_STR4}" "${USAGE_STR5}"`
+USAGE_STR=`printf "${USAGE_FMT}\r" "" "" "" "" ""`
+USAGE_STR_HIDDEN=`printf "${USAGE_FMT}\r" "${USAGE_STR1}" "${USAGE_STR2}" "${USAGE_STR3}" "${USAGE_STR4}" "${USAGE_STR5}"`
 
 #
 # process CLI parameters
@@ -47,9 +49,10 @@ CONTAINER_USER=
 CONTAINER_SSH=
 CONTAINER_UPGRADE=
 CONTAINER_BUILD=
-CONTAINER_PLATFORM=archlinux
-CONTAINER_RELEASE=current
-CONTAINER_ARCH=amd64
+CONTAINER_LIST=
+CONTAINER_DISTRO=archlinux
+CONTAINER_RELEASE=
+CONTAINER_ARCH=
 TEMP=$(getopt -o $USAGE_SHORT -l $USAGE_LONG -n "`basename $0`" -- "$@")
 [ $? != 0 ] && usage 1 "${USAGE_STR}"
 eval set -- "$TEMP"
@@ -74,8 +77,14 @@ while true; do
             shift
             ;;
         # unexposed parameter
-        -p|--platform)
-            CONTAINER_PLATFORM=$2
+        -l|--list)
+            CONTAINER_LIST=true
+            ;;
+        -L|--listall)
+            CONTAINER_LIST=all
+            ;;
+        -d|--distro)
+            CONTAINER_DISTRO=$2
             shift
             ;;
         -r|--release)
@@ -100,9 +109,18 @@ while true; do
 done
 
 # check for correct usage
+[ -n "${CONTAINER_LIST}" ] && template_list "${CONTAINER_LIST}"
 [ -n "${2}" ] && usage 1 "${USAGE_STR}"
 [ -z "${CONTAINER_NAME}" ] && usage 1 "${USAGE_STR}"
 [ -n "${CONTAINER_SSH}" -a -z "${CONTAINER_USER}" ] && usage 1 "${USAGE_STR}"
+
+# set platform defaults
+if [ -z "${CONTAINER_RELEASE}" ]; then
+    [ "${CONTAINER_DISTRO}" == "archlinux" ] && CONTAINER_RELEASE=current
+    [ "${CONTAINER_DISTRO}" == "ubuntu" ] && CONTAINER_RELEASE=focal
+fi
+
+[ -z "${CONTAINER_ARCH}" ] && CONTAINER_ARCH=amd64
 
 # essential packages
 LIST_PACKAGES="
@@ -136,7 +154,7 @@ if [ ! -d ${CONTAINER_ROOTFS} ]; then
     [ ! -f ${USER_HOME}/.bash_aliases ] && echo "ERROR: File '.bash_aliases' does not exist." && exit 1
     [ ! -f ${USER_HOME}/.emacs ] && echo "ERROR: File '.emacs' does not exist." && exit 1
 
-    lxc-create -n ${CONTAINER_NAME} -t download -- -d ${CONTAINER_PLATFORM} -r ${CONTAINER_RELEASE} -a ${CONTAINER_ARCH} || exit 1
+    lxc-create -n ${CONTAINER_NAME} -t download -- -d ${CONTAINER_DISTRO} -r ${CONTAINER_RELEASE} -a ${CONTAINER_ARCH} || exit 1
     [ -f ${USER_HOME}/.wget-hsts ] && sudo rm -f ${USER_HOME}/.wget-hsts
 
     # remove default users, if any
@@ -154,7 +172,8 @@ if [ ! -d ${CONTAINER_ROOTFS} ]; then
 EOF
     sudo chmod 440 ${CONTAINER_ROOTFS}/etc/sudoers.d/group-sudo
     sudo chown -R --reference=${CONTAINER_ROOTFS}/root ${CONTAINER_ROOTFS}/etc/sudoers.d/group-sudo
-    if [ "${CONTAINER_PLATFORM}" = "ubuntu" ]; then
+    ( exit 0 # /* comment out legacy workaround
+    if [ "${CONTAINER_DISTRO}" = "ubuntu" ]; then
         sudo rm -f ${CONTAINER_ROOTFS}/etc/sudoers.d/90-lxd
 
         # dhcpcd should not expect net device info from udev
@@ -162,9 +181,10 @@ EOF
 nodev
 EOF
     fi
+    ) # comment out legacy workaround */
 
     # update /etc/skel + /root folders
-    if [ "${CONTAINER_PLATFORM}" = "archlinux" ]; then
+    if [ "${CONTAINER_DISTRO}" = "archlinux" ]; then
         sudo bash -c "cat >> ${CONTAINER_ROOTFS}/etc/skel/.bashrc" << EOF
 
 if [ -f ~/.bash_aliases ]; then
@@ -198,7 +218,7 @@ if [ -n "${CONTAINER_USER}" -a ! -d "${CONTAINER_USER_HOME}" ]; then
     # update user password
     lxc-attach -n ${CONTAINER_NAME} -- passwd -d ${CONTAINER_USER}
     lxc-attach -n ${CONTAINER_NAME} -- passwd -e ${CONTAINER_USER}
-    echo "New user: ${CONTAINER_USER}"
+    echo "Container user: ${CONTAINER_USER}"
     lxc-attach -n ${CONTAINER_NAME} -- su - ${CONTAINER_USER} -c exit
 fi
 
@@ -240,16 +260,16 @@ if [ -n "${CONTAINER_SSH}" ]; then
     upgrade_os ${CONTAINER_NAME}
 
     # add + start ssh server
-    if [ "${CONTAINER_PLATFORM}" = "archlinux" ]; then
+    if [ "${CONTAINER_DISTRO}" = "archlinux" ]; then
         package_install ${CONTAINER_NAME} openssh || exit 1
 
         # enable ssh server daemon
         lxc-attach -n ${CONTAINER_NAME} -- systemctl enable sshd.service || exit 1
         lxc-attach -n ${CONTAINER_NAME} -- systemctl start sshd.service || exit 1
-    elif [ "${CONTAINER_PLATFORM}" = "ubuntu" ]; then
+    elif [ "${CONTAINER_DISTRO}" = "ubuntu" ]; then
         package_install ${CONTAINER_NAME} ssh || exit 1
     else
-        echo "ERROR: Unsupported platform (${CONTAINER_PLATFORM})." && exit 1
+        echo "ERROR: Unsupported distro (${CONTAINER_DISTRO})." && exit 1
     fi
 
     # remove old host reference, if any
@@ -263,15 +283,15 @@ fi
 # use foreign 'build' container
 #
 
-# 'build' container constants
-BUILD_USER=root
-BUILD_ROOTFS=${LXC_PATH}/build/rootfs
-BUILD_USER_HOME=${BUILD_ROOTFS}/${BUILD_USER}
-
-# local container constants
-CONTAINER_ROOT_HOME=${CONTAINER_ROOTFS}/root
-
 if [ -n "${CONTAINER_BUILD}" ]; then
+    # 'build' container constants
+    BUILD_USER=root
+    BUILD_ROOTFS=${LXC_PATH}/build/rootfs
+    BUILD_USER_HOME=${BUILD_ROOTFS}/${BUILD_USER}
+
+    # local container constants
+    CONTAINER_ROOT_HOME=${CONTAINER_ROOTFS}/root
+
     [ ! -d ${BUILD_ROOTFS} ] && echo "ERROR: Container does not exist (build)." && exit 1
 
     # find regular user

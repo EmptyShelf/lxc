@@ -30,12 +30,13 @@ LXC_CONFIG=`lxc-config lxc.default_config`
 LXC_CONFIG_DIR=`dirname ${LXC_CONFIG}`
 # ~/.local/share/lxc
 LXC_PATH=`lxc-config lxc.lxcpath`
+LXC_DOWNLOAD=/usr/share/lxc/templates/lxc-download
 
 function usage { # RET STR
     RET=${1}
     STR="${2}"
-    [ -z "${STR}" ] && echo "SYSTEM ERROR: L37 ${LXC_LIB}" && exit 1
-    echo "${STR}"
+    [ -z "${STR}" ] && echo "SYSTEM ERROR: L38 ${LXC_LIB}" && exit 1
+    echo -n -e "${STR}"
     exit ${RET}
 }
 
@@ -63,7 +64,7 @@ function upgrade_ubuntu() # NAME
 function upgrade_os() # NAME
 {
     NAME="${1}"
-    [ -z "${NAME}" ] && echo "SYSTEM ERROR: L66 ${LXC_LIB}" && exit 1
+    [ -z "${NAME}" ] && echo "SYSTEM ERROR: L67 ${LXC_LIB}" && exit 1
 
     OS_NAME="`os_name ${NAME}`"
     echo
@@ -89,7 +90,7 @@ function package_arch() # NAME PACKAGE
 {
     NAME="${1}"
     PACKAGE="${2}"
-    [ -z "${NAME}" -o -z "${PACKAGE}" ] && echo "SYSTEM ERROR: L92 ${LXC_LIB}" && exit 1
+    [ -z "${NAME}" -o -z "${PACKAGE}" ] && echo "SYSTEM ERROR: L93 ${LXC_LIB}" && exit 1
     lxc-attach -n ${NAME} -- su - -c "pacman -Q ${PACKAGE} || pacman --noconfirm -S ${PACKAGE}" || exit 1
 }
 
@@ -97,7 +98,7 @@ function package_ubuntu() # NAME PACKAGE
 {
     NAME="${1}"
     PACKAGE="${2}"
-    [ -z "${NAME}" -o -z "${PACKAGE}" ] && echo "SYSTEM ERROR: L100 ${LXC_LIB}" && exit 1
+    [ -z "${NAME}" -o -z "${PACKAGE}" ] && echo "SYSTEM ERROR: L101 ${LXC_LIB}" && exit 1
     lxc-attach -n ${NAME} -- apt -y install ${PACKAGE} || exit 1
 }
 
@@ -105,7 +106,7 @@ function package_install() # NAME PACKAGE
 {
     NAME="${1}"
     PACKAGE="${2}"
-    [ -z "${NAME}" -o -z "${PACKAGE}" ] && echo "SYSTEM ERROR: L108 ${LXC_LIB}" && exit 1
+    [ -z "${NAME}" -o -z "${PACKAGE}" ] && echo "SYSTEM ERROR: L109 ${LXC_LIB}" && exit 1
 
     OS_NAME="`os_name ${NAME}`"
     case "${OS_NAME}" in
@@ -125,14 +126,14 @@ function package_install() # NAME PACKAGE
 function host_addr() # NAME
 {
     NAME="${1}"
-    [ -z "${NAME}" ] && echo "SYSTEM ERROR: L128 ${LXC_LIB}" && exit 1
+    [ -z "${NAME}" ] && echo "SYSTEM ERROR: L129 ${LXC_LIB}" && exit 1
     echo "`lxc-attach -n ${NAME} -- ip -4 a show eth0 | grep -Po 'inet \K[0-9.]*'`"
 }
 
 function network_up() # NAME
 {
     NAME="${1}"
-    [ -z "${NAME}" ] && echo "SYSTEM ERROR: L135 ${LXC_LIB}" && exit 1
+    [ -z "${NAME}" ] && echo "SYSTEM ERROR: L136 ${LXC_LIB}" && exit 1
 
     # Arch is broken right now (Ubuntu host; Arch container)
     if [[ "`os_name ${NAME}`" == Arch* ]]; then
@@ -165,7 +166,7 @@ function container_start() # NAME [NODELAY]
 {
     NAME="${1}"
     NODELAY="${2}"
-    [ -z "${NAME}" ] && echo "SYSTEM ERROR: L171 ${LXC_LIB}" && exit 1
+    [ -z "${NAME}" ] && echo "SYSTEM ERROR: L169 ${LXC_LIB}" && exit 1
 
     case "`lxc-info -s -n ${NAME}`" in
         *RUNNING)
@@ -188,7 +189,7 @@ function container_start() # NAME [NODELAY]
 function container_stop() # NAME
 {
     NAME="${1}"
-    [ -z "${NAME}" ] && echo "SYSTEM ERROR: L194 ${LXC_LIB}" && exit 1
+    [ -z "${NAME}" ] && echo "SYSTEM ERROR: L192 ${LXC_LIB}" && exit 1
 
     case "`lxc-info -s -n ${NAME}`" in
         *RUNNING)
@@ -267,7 +268,7 @@ function lxc_systemd() # {system|user}
 {
     SYSTEM="${1}"
     [ -z "${SYSTEM}" ] && SYSTEM=user
-    [ "${SYSTEM}" != "user" ] && [ "${SYSTEM}" != "system" ] && echo "SYSTEM ERROR: L273 ${LXC_LIB}" && exit 1
+    [ "${SYSTEM}" != "user" ] && [ "${SYSTEM}" != "system" ] && echo "SYSTEM ERROR: L271 ${LXC_LIB}" && exit 1
 
     SYSTEMD_HOME=${USER_HOME}/.config/systemd/user
     mkdir -p ${SYSTEMD_HOME} || exit 1
@@ -306,7 +307,8 @@ function lxc_config()
 function ssh_host_add()
 {
     NAME="${1}"
-    USERNAME="${1}"
+    USERNAME="${2}"
+    [ -z "${NAME}" -o -z "${USERNAME}" ] && echo "SYSTEM ERROR: L311 ${LXC_LIB}" && exit 1
     # adds 5 lines
     cat >> ${USER_HOME}/.ssh/config <<EOF
 Host ${NAME}
@@ -324,5 +326,42 @@ function ssh_host_remove()
         # removes 5 (+4d) lines
         sed -e "/^Host \+${NAME}$/,+4d" -i ${USER_HOME}/.ssh/config
     fi
+}
+
+#        8
+#ubuntu
+#          10
+#archlinux
+#            12
+#amazonlinux
+#                16
+#springdalelinux
+COLUMN0=10
+COLUMN_=8
+function template_list()
+{
+    ARG1="${1}"
+    [ ! -e ${LXC_DOWNLOAD} ] && echo "ERROR: Unable to find utility (lxc-download)" && exit 1
+    if [ "${ARG1}" = "all" ]; then
+        ${LXC_DOWNLOAD} -l
+    else
+        echo -e -n "Searching...\r"
+        count=0
+        for ITEM in `${LXC_DOWNLOAD} -l | grep -i -e ubuntu -e archlinux -e RELEASE`; do
+            if [ $count -eq 0 ]; then
+                printf "%-${COLUMN0}s " "${ITEM}"
+            else
+                printf "%-${COLUMN_}s " "${ITEM}"
+            fi
+
+            if [ $count -ge 4 ]; then
+                echo ""
+                count=0
+            else
+                ((count=count+1))
+            fi
+        done
+    fi
+    exit 0
 }
 

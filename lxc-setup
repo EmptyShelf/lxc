@@ -22,7 +22,7 @@ Options:
   -c, --config           show LXC system configuration
   -U, --unprivileged     enable unprivileged containers
   -S, --systemd          enable user-based auto-start
-  -h, --help             print this usage helper\
+  -h, --help             print this usage helper
 "
 
 #

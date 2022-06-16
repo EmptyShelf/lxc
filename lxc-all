@@ -22,7 +22,7 @@ Options:
   -U, --upgrade          upgrade operating systems and stop
   -a, --autostart        restart each autostart container
   -r, --restart          restart all containers
-  -h, --help             print this usage helper\
+  -h, --help             print this usage helper
 "
 
 #

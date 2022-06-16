@@ -24,7 +24,7 @@ Options:
 
 NOTE:
 When --reverse is active, --destin=DIR refers to the local filesystem.
-Both relative and hard paths are supported, throughout.\
+Both relative and hard paths are supported, throughout.
 "
 
 #

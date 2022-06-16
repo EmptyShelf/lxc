@@ -16,7 +16,7 @@ Description: Connect to container via shell access.
 Options:
   -n, --name=NAME        specify NAME of container
   -u, --user=USER        connect as regular USER
-  -h, --help             print this usage helper\
+  -h, --help             print this usage helper
 "
 
 #
