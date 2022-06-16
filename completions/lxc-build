@@ -87,10 +87,12 @@ _lxc_all() {
     complete -F _lxc_all lxc-all
 
 # Let's not advertize these (hidden) parameters
-#  -p, --platform=PLAT    specify platform PLAT for container (default: archlinux)
-#  -r, --release=REL      specify release REL of container (default: current)
-#  -a, --arch=ARCH        specify architecture ARCH of container (default: amd64)"
-#  -H, --hidden           print hidden usage
+# -d, --distrto=DIST     specify distribution DIST for container (default: archlinux)
+# -r, --release=RELEASE  specify release RELEASE of container (default: current)
+# -a, --arch=ARCH        specify architecture ARCH of container (default: amd64)
+# -l, --list             list available distributions, releases and architectures
+# -L, --listall          list all available distributions, releases and architectures"
+# -H, --hidden           print hidden usage
 _lxc_build() {
     local cur prev words cword split
     COMPREPLY=()
