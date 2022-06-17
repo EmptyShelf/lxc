@@ -89,7 +89,7 @@ if [ -z "${CONTAINER_REVERSE}" ]; then
 
     for SRC in `echo "${CONTAINER_SOURCE}"`; do
         sudo rsync ${RSYNC_FLAGS} "${SRC}" "${CONTAINER_PATH}/"
-        sudo chown -R --reference=${CONTAINER_PATH} ${CONTAINER_PATH}/${SRC}
+        sudo chown -R --reference=${CONTAINER_PATH} ${CONTAINER_PATH}/`basename ${SRC}`
     done
 else
     LOCAL_PATH=.
@@ -99,7 +99,7 @@ else
 
     for SRC in `echo "${CONTAINER_SOURCE}"`; do
         sudo rsync ${RSYNC_FLAGS} "${CONTAINER_PATH}/${SRC}" "${LOCAL_PATH}/"
-        sudo chown -R --reference=${LOCAL_PATH} ${LOCAL_PATH}/${SRC}
+        sudo chown -R --reference=${LOCAL_PATH} ${LOCAL_PATH}/`basename ${SRC}`
     done
 fi
 
