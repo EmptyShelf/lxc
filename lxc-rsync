@@ -70,12 +70,12 @@ shift
 [ -z "${CONTAINER_NAME}" ] && usage 1 "${USAGE_STR}"
 
 CONTAINER_SOURCE="${@}"
-CONTAINER_ROOTFS=${LXC_PATH}/${CONTAINER_NAME}/rootfs
+CONTAINER_ROOTFS=${LXC_LXCPATH}/${CONTAINER_NAME}/rootfs
 CONTAINER_USER_HOME=${CONTAINER_ROOTFS}/home/${CONTAINER_USER}
 
-[ -z "${CONTAINER_SOURCE}" ] && echo "ERROR: No directories or files specified for transfer." && usage 1 "${USAGE_STR}"
-[ ! -d ${CONTAINER_ROOTFS} ] && echo "ERROR: Container '${CONTAINER_NAME}' does not exist." && exit 1
-[ -n "${CONTAINER_USER}" ] && [ ! -d ${CONTAINER_USER_HOME} ] && echo "ERROR: User '${CONTAINER_USER}' does not exist." && exit 1
+[ -z "${CONTAINER_SOURCE}" ] && echo "ERROR: No directories or files specified for transfer." >&2 && usage 1 "${USAGE_STR}"
+[ ! -d ${CONTAINER_ROOTFS} ] && echo "ERROR: Container '${CONTAINER_NAME}' does not exist." >&2 && exit 1
+[ -n "${CONTAINER_USER}" ] && [ ! -d ${CONTAINER_USER_HOME} ] && echo "ERROR: User '${CONTAINER_USER}' does not exist." >&2 && exit 1
 
 #
 # main procedure
@@ -85,7 +85,7 @@ CONTAINER_PATH=${CONTAINER_ROOTFS}/root
 [ -n "${CONTAINER_USER}" ] && CONTAINER_PATH=${CONTAINER_USER_HOME}
 if [ -z "${CONTAINER_REVERSE}" ]; then
     [ -n "${CONTAINER_DESTIN}" ] && CONTAINER_PATH=${CONTAINER_PATH}/${CONTAINER_DESTIN}
-    [ ! -e ${CONTAINER_PATH} ] && echo "ERROR: Path does not exist (${CONTAINER_PATH})." && exit 1
+    [ ! -e ${CONTAINER_PATH} ] && echo "ERROR: Path does not exist (${CONTAINER_PATH})." >&2 && exit 1
 
     for SRC in `echo "${CONTAINER_SOURCE}"`; do
         sudo rsync ${RSYNC_FLAGS} "${SRC}" "${CONTAINER_PATH}/"
@@ -94,8 +94,8 @@ if [ -z "${CONTAINER_REVERSE}" ]; then
 else
     LOCAL_PATH=.
     [ -n "${CONTAINER_DESTIN}" ] && LOCAL_PATH=${CONTAINER_DESTIN}
-    [ ! -e ${CONTAINER_PATH} ] && echo "ERROR: Path does not exist (${CONTAINER_PATH})." && exit 1
-    [ ! -e ${LOCAL_PATH} ] && echo "ERROR: Path does not exist (${LOCAL_PATH})." && exit 1
+    [ ! -e ${CONTAINER_PATH} ] && echo "ERROR: Path does not exist (${CONTAINER_PATH})." >&2 && exit 1
+    [ ! -e ${LOCAL_PATH} ] && echo "ERROR: Path does not exist (${LOCAL_PATH})." >&2 && exit 1
 
     for SRC in `echo "${CONTAINER_SOURCE}"`; do
         sudo rsync ${RSYNC_FLAGS} "${CONTAINER_PATH}/${SRC}" "${LOCAL_PATH}/"

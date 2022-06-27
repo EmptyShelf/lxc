@@ -6,7 +6,6 @@ LXC_LIB=".lxc-lib"
 
 # required tools
 LIST_UTILS="
-getfacl
 getopt
 loginctl
 lxc-attach
@@ -15,27 +14,31 @@ lxc-create
 lxc-info
 lxc-start
 rsync
-setfacl
 "
 
 # check for required tools
 for ITEM in `echo "${LIST_UTILS}"`; do
-    [ -z "`which ${ITEM}`" ] && echo "ERROR: Required utility is not installed (${ITEM})" && exit 1
+    [ -z "`which ${ITEM}`" ] && echo "ERROR: Required utility is not installed (${ITEM})" >&2 && exit 1
 done
 
 # set core constants
 USER_HOME=/home/${USER}
 # ~/.config/lxc/default.conf
-LXC_CONFIG=`lxc-config lxc.default_config`
-LXC_CONFIG_DIR=`dirname ${LXC_CONFIG}`
+LXC_DEFAULT_CONFIG=`lxc-config lxc.default_config`
+LXC_DEFAULT_CONFIG_PATH=`dirname ${LXC_DEFAULT_CONFIG}`
 # ~/.local/share/lxc
-LXC_PATH=`lxc-config lxc.lxcpath`
+LXC_LXCPATH=`lxc-config lxc.lxcpath`
 LXC_DOWNLOAD=/usr/share/lxc/templates/lxc-download
+
+if [ ! -e ${LXC_DEFAULT_CONFIG} ]; then
+    [ -e /etc/pacman.conf ] && echo "ERROR: No configuration (run: ./installation/unprivileged-archlinux)" >&2 && exit 1
+    [ -e /etc/apt/sources.list ] && echo "ERROR: No configuration (run: ./installation/unprivileged-ubuntu)" >&2 && exit 1
+fi
 
 function usage { # RET STR
     RET=${1}
     STR="${2}"
-    [ -z "${STR}" ] && echo "SYSTEM ERROR: L38 ${LXC_LIB}" && exit 1
+    [ -z "${STR}" ] && echo "SYSTEM ERROR: L41 ${LXC_LIB}" >&2 && exit 1
     echo -n -e "${STR}"
     exit ${RET}
 }
@@ -44,7 +47,7 @@ function usage { # RET STR
 function os_name() # NAME
 {
     NAME="${1}"
-    echo "`cat ${LXC_PATH}/${NAME}/rootfs/etc/issue | grep '^[^ ]\+' | sed 's|^\([^\\0-9]\+\).*|\1|g' | sed 's| *$||'`"
+    echo "`cat ${LXC_LXCPATH}/${NAME}/rootfs/etc/issue | grep '^[^ ]\+' | sed 's|^\([^\\0-9]\+\).*|\1|g' | sed 's| *$||'`"
 }
 
 function upgrade_arch() # NAME
@@ -64,7 +67,7 @@ function upgrade_ubuntu() # NAME
 function upgrade_os() # NAME
 {
     NAME="${1}"
-    [ -z "${NAME}" ] && echo "SYSTEM ERROR: L67 ${LXC_LIB}" && exit 1
+    [ -z "${NAME}" ] && echo "SYSTEM ERROR: L70 ${LXC_LIB}" >&2 && exit 1
 
     OS_NAME="`os_name ${NAME}`"
     echo
@@ -80,8 +83,7 @@ function upgrade_os() # NAME
             upgrade_ubuntu ${NAME}
             ;;
         *)
-            echo "ERROR: Unsupported OS name (${OS_NAME})"
-            exit 1
+            echo "ERROR: Unsupported OS name (${OS_NAME})" >&2 && exit 1
             ;;
     esac
 }
@@ -90,7 +92,7 @@ function package_arch() # NAME PACKAGE
 {
     NAME="${1}"
     PACKAGE="${2}"
-    [ -z "${NAME}" -o -z "${PACKAGE}" ] && echo "SYSTEM ERROR: L93 ${LXC_LIB}" && exit 1
+    [ -z "${NAME}" -o -z "${PACKAGE}" ] && echo "SYSTEM ERROR: L95 ${LXC_LIB}" >&2 && exit 1
     lxc-attach -n ${NAME} -- su - -c "pacman -Q ${PACKAGE} || pacman --noconfirm -S ${PACKAGE}" || exit 1
 }
 
@@ -98,7 +100,7 @@ function package_ubuntu() # NAME PACKAGE
 {
     NAME="${1}"
     PACKAGE="${2}"
-    [ -z "${NAME}" -o -z "${PACKAGE}" ] && echo "SYSTEM ERROR: L101 ${LXC_LIB}" && exit 1
+    [ -z "${NAME}" -o -z "${PACKAGE}" ] && echo "SYSTEM ERROR: L103 ${LXC_LIB}" >&2 && exit 1
     lxc-attach -n ${NAME} -- apt -y install ${PACKAGE} || exit 1
 }
 
@@ -106,7 +108,7 @@ function package_install() # NAME PACKAGE
 {
     NAME="${1}"
     PACKAGE="${2}"
-    [ -z "${NAME}" -o -z "${PACKAGE}" ] && echo "SYSTEM ERROR: L109 ${LXC_LIB}" && exit 1
+    [ -z "${NAME}" -o -z "${PACKAGE}" ] && echo "SYSTEM ERROR: L111 ${LXC_LIB}" >&2 && exit 1
 
     OS_NAME="`os_name ${NAME}`"
     case "${OS_NAME}" in
@@ -117,8 +119,7 @@ function package_install() # NAME PACKAGE
             package_ubuntu ${NAME} ${PACKAGE}
             ;;
         *)
-            echo "ERROR: Unsupported OS name (${OS_NAME})"
-            exit 1
+            echo "ERROR: Unsupported OS name (${OS_NAME})" >&2 && exit 1
             ;;
     esac
 }
@@ -126,25 +127,14 @@ function package_install() # NAME PACKAGE
 function host_addr() # NAME
 {
     NAME="${1}"
-    [ -z "${NAME}" ] && echo "SYSTEM ERROR: L129 ${LXC_LIB}" && exit 1
+    [ -z "${NAME}" ] && echo "SYSTEM ERROR: L130 ${LXC_LIB}" >&2 && exit 1
     echo "`lxc-attach -n ${NAME} -- ip -4 a show eth0 | grep -Po 'inet \K[0-9.]*'`"
 }
 
 function network_up() # NAME
 {
     NAME="${1}"
-    [ -z "${NAME}" ] && echo "SYSTEM ERROR: L136 ${LXC_LIB}" && exit 1
-
-    # Arch is broken right now (Ubuntu host; Arch container)
-    if [[ "`os_name ${NAME}`" == Arch* ]]; then
-        if [ -z "`host_addr ${NAME}`" ]; then
-            lxc-attach -n ${NAME} -- su - -c "dhcpcd eth0"
-        fi
-        if [ -z "`host_addr ${NAME}`" ]; then
-            sleep 5
-            lxc-attach -n ${NAME} -- su - -c "dhcpcd eth0"
-        fi
-    fi
+    [ -z "${NAME}" ] && echo "SYSTEM ERROR: L137 ${LXC_LIB}" >&2 && exit 1
 
     BOOTING=
     while :; do
@@ -166,7 +156,7 @@ function container_start() # NAME [NODELAY]
 {
     NAME="${1}"
     NODELAY="${2}"
-    [ -z "${NAME}" ] && echo "SYSTEM ERROR: L169 ${LXC_LIB}" && exit 1
+    [ -z "${NAME}" ] && echo "SYSTEM ERROR: L159 ${LXC_LIB}" >&2 && exit 1
 
     case "`lxc-info -s -n ${NAME}`" in
         *RUNNING)
@@ -178,8 +168,7 @@ function container_start() # NAME [NODELAY]
             lxc-unfreeze -n ${NAME}
             ;;
         *)
-            echo "ERROR: Unable to start container (${NAME})"
-            exit 1
+            echo "ERROR: Unable to start container (${NAME})" >&2 && exit 1
             ;;
     esac
 
@@ -189,7 +178,7 @@ function container_start() # NAME [NODELAY]
 function container_stop() # NAME
 {
     NAME="${1}"
-    [ -z "${NAME}" ] && echo "SYSTEM ERROR: L192 ${LXC_LIB}" && exit 1
+    [ -z "${NAME}" ] && echo "SYSTEM ERROR: L181 ${LXC_LIB}" >&2 && exit 1
 
     case "`lxc-info -s -n ${NAME}`" in
         *RUNNING)
@@ -202,8 +191,7 @@ function container_stop() # NAME
             lxc-stop -n ${NAME}
             ;;
         *)
-            echo "ERROR: Unable to start container (${NAME})"
-            exit 1
+            echo "ERROR: Unable to start container (${NAME})" >&2 && exit 1
             ;;
     esac
 }
@@ -220,97 +208,22 @@ function lxc_status()
     [ -n "`systemctl --user status lxc-autostart 2>/dev/null | grep 'inactive'`" ] && ACTIVE="not active"
     echo "Autostart: ${ACTIVE}"
 
-    for USR in `loginctl --no-legend list-users | sed 's|^[0-9]\+ ||'`; do
+    for ITEM in `loginctl --no-legend list-users | sed 's|^[0-9]\+ ||'`; do
         LINGER="no linger"
-        loginctl show-user ${USR} --property=Linger 2>/dev/null | grep -q 'yes' && LINGER="linger"
-        echo "${USR}: ${LINGER}"
+        loginctl show-user ${ITEM} --property=Linger 2>/dev/null | grep -q 'yes' && LINGER="linger"
+        echo "${ITEM}: ${LINGER}"
     done
 
     exit 0
-}
-
-function lxc_unprivileged()
-{
-    UNP_UID=(`cat /etc/subuid | sed 's|[^:]\+:\([0-9]\+\):\([0-9]\+\)|\1 \2|'`)
-    UNP_GID=(`cat /etc/subgid | sed 's|[^:]\+:\([0-9]\+\):\([0-9]\+\)|\1 \2|'`)
-
-    if [ -z "`getfacl -p ${USER_HOME} | grep \"user[:]${UNP_UID[0]}[:]--x\"`" ]; then
-        setfacl -m u:${UNP_UID[0]}:x ${USER_HOME} || exit 1
-    fi
-
-    if [ -z "`getfacl -p ${USER_HOME} | grep \"group[:]${UNP_GID[0]}[:]--x\"`" ]; then
-        setfacl -m g:${UNP_GID[0]}:x ${USER_HOME} || exit 1
-    fi
-
-    if [ ! -f ${LXC_CONFIG} ]; then
-        mkdir -p ${LXC_CONFIG_DIR} || exit 1
-        cp /etc/lxc/default.conf ${LXC_CONFIG_DIR}/ || exit 1
-    fi
-
-    if [ -z "`cat ${LXC_CONFIG} | grep 'lxc.idmap = u 0'`" ]; then
-        cat >> ${LXC_CONFIG} <<EOF
-lxc.idmap = u 0 ${UNP_UID[0]} ${UNP_UID[1]}
-EOF
-    fi
-
-    if [ -z "`cat ${LXC_CONFIG} | grep 'lxc.idmap = g 0'`" ]; then
-        cat >> ${LXC_CONFIG} <<EOF
-lxc.idmap = g 0 ${UNP_GID[0]} ${UNP_GID[1]}
-EOF
-    fi
-
-    if [ -z "`cat /etc/lxc/lxc-usernet | grep ${USER}`" ]; then
-        echo "${USER} veth lxcbr0 16" | sudo tee -a /etc/lxc/lxc-usernet >/dev/null || exit 1
-    fi
-}
-
-function lxc_systemd() # {system|user}
-{
-    SYSTEM="${1}"
-    [ -z "${SYSTEM}" ] && SYSTEM=user
-    [ "${SYSTEM}" != "user" ] && [ "${SYSTEM}" != "system" ] && echo "SYSTEM ERROR: L271 ${LXC_LIB}" && exit 1
-
-    SYSTEMD_HOME=${USER_HOME}/.config/systemd/user
-    mkdir -p ${SYSTEMD_HOME} || exit 1
-    [ -f ${SYSTEMD_HOME}/lxc-autostart.service ] || cat > ${SYSTEMD_HOME}/lxc-autostart.service <<EOF
-[Unit]
-Description="Run lxc-autostart"
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/lxc-autostart
-ExecStop=/usr/bin/lxc-autostart -s
-RemainAfterExit=1
-
-[Install]
-WantedBy=default.target
-EOF
-
-    [ -n "`systemctl --user status lxc-autostart 2>/dev/null | grep 'inactive'`" ] && systemctl --user enable lxc-autostart
-    [ "${SYSTEM}" = "system" ] && sudo loginctl enable-linger ${USER}
-    [ "${SYSTEM}" = "user" ] && sudo loginctl disable-linger ${USER}
-}
-
-function lxc_config()
-{
-    # ensure local LXC path exists
-    [ ! -d "${LXC_PATH}" ] && mkdir -p ${LXC_PATH}
-
-    # check for local DHCP daemon
-    [ -z "`dpkg -s dnsmasq 2>/dev/null | grep 'installed'`" ] && sudo apt-get install dnsmasq
-
-    # configure LXC as needed
-    [ -z "`cat /etc/lxc/lxc-usernet | grep ${USER}`" ] && lxc_unprivileged
-    [ -n "`systemctl --user status lxc-autostart 2>/dev/null | grep 'inactive'`" ] && lxc_systemd
 }
 
 function ssh_host_add()
 {
     NAME="${1}"
     USERNAME="${2}"
-    [ -z "${NAME}" -o -z "${USERNAME}" ] && echo "SYSTEM ERROR: L311 ${LXC_LIB}" && exit 1
+    [ -z "${NAME}" -o -z "${USERNAME}" ] && echo "SYSTEM ERROR: L224 ${LXC_LIB}" >&2 && exit 1
     # adds 5 lines
-    cat >> ${USER_HOME}/.ssh/config <<EOF
+    cat <<EOF | tee -a ${USER_HOME}/.ssh/config >/dev/null
 Host ${NAME}
     HostName `host_addr ${NAME}`
     User ${USERNAME}
@@ -341,7 +254,7 @@ COLUMN_=8
 function template_list()
 {
     ARG1="${1}"
-    [ ! -e ${LXC_DOWNLOAD} ] && echo "ERROR: Unable to find utility (lxc-download)" && exit 1
+    [ ! -e ${LXC_DOWNLOAD} ] && echo "ERROR: Unable to find utility (lxc-download)" >&2 && exit 1
     if [ "${ARG1}" = "all" ]; then
         ${LXC_DOWNLOAD} -l
     else

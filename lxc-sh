@@ -51,11 +51,11 @@ done
 [ -n "${2}" ] && usage 1 "${USAGE_STR}"
 [ -z "${CONTAINER_NAME}" ] && usage 1 "${USAGE_STR}"
 
-CONTAINER_ROOTFS=${LXC_PATH}/${CONTAINER_NAME}/rootfs
+CONTAINER_ROOTFS=${LXC_LXCPATH}/${CONTAINER_NAME}/rootfs
 CONTAINER_USER_HOME=${CONTAINER_ROOTFS}/home/${CONTAINER_USER}
 
-[ ! -d ${CONTAINER_ROOTFS} ] && echo "ERROR: Container does not exist (${CONTAINER_NAME})." && exit 1
-[ -n "${CONTAINER_USER}" ] && [ ! -d ${CONTAINER_USER_HOME} ] && echo "ERROR: User does not exist (${CONTAINER_USER})." && exit 1
+[ ! -d ${CONTAINER_ROOTFS} ] && echo "ERROR: Container does not exist (${CONTAINER_NAME})." >&2 && exit 1
+[ -n "${CONTAINER_USER}" ] && [ ! -d ${CONTAINER_USER_HOME} ] && echo "ERROR: User does not exist (${CONTAINER_USER})." >&2 && exit 1
 
 #
 # main procedure

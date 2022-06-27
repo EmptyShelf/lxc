@@ -140,19 +140,19 @@ subgid
 "
 
 # container constants
-CONTAINER_ROOTFS=${LXC_PATH}/${CONTAINER_NAME}/rootfs
+CONTAINER_ROOTFS=${LXC_LXCPATH}/${CONTAINER_NAME}/rootfs
 CONTAINER_USER_HOME=${CONTAINER_ROOTFS}/home/${CONTAINER_USER}
 
-# check lxc configuration
-lxc_config
+# up-front ask for passwd
+sudo echo -n ""
 
 #
 # create container
 #
 
 if [ ! -d ${CONTAINER_ROOTFS} ]; then
-    [ ! -f ${USER_HOME}/.bash_aliases ] && echo "ERROR: File '.bash_aliases' does not exist." && exit 1
-    [ ! -f ${USER_HOME}/.emacs ] && echo "ERROR: File '.emacs' does not exist." && exit 1
+    [ ! -f ${USER_HOME}/.bash_aliases ] && echo "ERROR: File '.bash_aliases' does not exist." >&2 && exit 1
+    [ ! -f ${USER_HOME}/.emacs ] && echo "ERROR: File '.emacs' does not exist." >&2 && exit 1
 
     lxc-create -n ${CONTAINER_NAME} -t download -- -d ${CONTAINER_DISTRO} -r ${CONTAINER_RELEASE} -a ${CONTAINER_ARCH} || exit 1
     [ -f ${USER_HOME}/.wget-hsts ] && sudo rm -f ${USER_HOME}/.wget-hsts
@@ -166,26 +166,25 @@ if [ ! -d ${CONTAINER_ROOTFS} ]; then
     done
 
     # add sudoers support
-    sudo bash -c "cat > ${CONTAINER_ROOTFS}/etc/sudoers.d/group-sudo" << EOF
+    cat <<EOF | sudo tee ${CONTAINER_ROOTFS}/etc/sudoers.d/group-sudo >/dev/null
 ## Allow members of group sudo to execute any command
 %sudo ALL=(ALL:ALL) ALL
 EOF
     sudo chmod 440 ${CONTAINER_ROOTFS}/etc/sudoers.d/group-sudo
     sudo chown -R --reference=${CONTAINER_ROOTFS}/root ${CONTAINER_ROOTFS}/etc/sudoers.d/group-sudo
-    ( exit 0 # /* comment out legacy workaround
-    if [ "${CONTAINER_DISTRO}" = "ubuntu" ]; then
-        sudo rm -f ${CONTAINER_ROOTFS}/etc/sudoers.d/90-lxd
 
-        # dhcpcd should not expect net device info from udev
-        sudo bash -c "cat >> ${CONTAINER_ROOTFS}/etc/dhcpcd.conf" << EOF
+    # dhcpcd should not expect net device info from udev
+    if [ "${CONTAINER_DISTRO}" = "archlinux" ]; then
+        cat <<EOF | sudo tee -a ${CONTAINER_ROOTFS}/etc/dhcpcd.conf >/dev/null
+
+# disable udev
 nodev
 EOF
     fi
-    ) # comment out legacy workaround */
 
     # update /etc/skel + /root folders
     if [ "${CONTAINER_DISTRO}" = "archlinux" ]; then
-        sudo bash -c "cat >> ${CONTAINER_ROOTFS}/etc/skel/.bashrc" << EOF
+        cat <<EOF | sudo tee -a ${CONTAINER_ROOTFS}/etc/skel/.bashrc >/dev/null
 
 if [ -f ~/.bash_aliases ]; then
     . ~/.bash_aliases
@@ -196,6 +195,14 @@ EOF
     sudo chown -R --reference=${CONTAINER_ROOTFS}/root ${CONTAINER_ROOTFS}/etc/skel
     sudo cp -a ${CONTAINER_ROOTFS}/etc/skel/.??* ${CONTAINER_ROOTFS}/root/
     sudo chown -R --reference=${CONTAINER_ROOTFS}/root ${CONTAINER_ROOTFS}/root
+
+    if [ "${CONTAINER_DISTRO}" = "archlinux" ]; then
+        # start container
+        container_start ${CONTAINER_NAME} nodelay
+
+        lxc-attach -n ${CONTAINER_NAME} -- systemctl enable dhcpcd.service &>/dev/null
+        lxc-attach -n ${CONTAINER_NAME} -- systemctl start dhcpcd.service &>/dev/null
+    fi
 
     CONTAINER_UPGRADE=true
 fi
@@ -244,8 +251,8 @@ fi
 #
 
 if [ -n "${CONTAINER_SSH}" ]; then
-    [ ! -f ${USER_HOME}/.ssh/id_rsa.pub ] && echo "ERROR: File '.ssh/id_rsa.pub' does not exist." && exit 1
-    [ -f ${CONTAINER_USER_HOME}/.ssh/authorized_keys ] && echo "ERROR: SSH appears to have been installed." && exit 1
+    [ ! -f ${USER_HOME}/.ssh/id_rsa.pub ] && echo "ERROR: File '.ssh/id_rsa.pub' does not exist." >&2 && exit 1
+    [ -f ${CONTAINER_USER_HOME}/.ssh/authorized_keys ] && echo "ERROR: SSH appears to have been installed." >&2 && exit 1
 
     # add authorized keys
     sudo mkdir -m 700 ${CONTAINER_USER_HOME}/.ssh
@@ -269,7 +276,7 @@ if [ -n "${CONTAINER_SSH}" ]; then
     elif [ "${CONTAINER_DISTRO}" = "ubuntu" ]; then
         package_install ${CONTAINER_NAME} ssh || exit 1
     else
-        echo "ERROR: Unsupported distro (${CONTAINER_DISTRO})." && exit 1
+        echo "ERROR: Unsupported distro (${CONTAINER_DISTRO})." >&2 && exit 1
     fi
 
     # remove old host reference, if any
@@ -286,13 +293,13 @@ fi
 if [ -n "${CONTAINER_BUILD}" ]; then
     # 'build' container constants
     BUILD_USER=root
-    BUILD_ROOTFS=${LXC_PATH}/build/rootfs
+    BUILD_ROOTFS=${LXC_LXCPATH}/build/rootfs
     BUILD_USER_HOME=${BUILD_ROOTFS}/${BUILD_USER}
 
     # local container constants
     CONTAINER_ROOT_HOME=${CONTAINER_ROOTFS}/root
 
-    [ ! -d ${BUILD_ROOTFS} ] && echo "ERROR: Container does not exist (build)." && exit 1
+    [ ! -d ${BUILD_ROOTFS} ] && echo "ERROR: Container does not exist (build)." >&2 && exit 1
 
     # find regular user
     ATTACH_USER=

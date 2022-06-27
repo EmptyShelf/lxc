@@ -1,0 +1,195 @@
+#!/bin/bash
+DEBUG=
+
+[[ $EUID -eq 0 ]] && exit 1
+
+#
+# Configuration: Support for unprivileged LXC containers on ArchLinux hosts
+#
+
+LXC_PACKAGES="lxc arch-install-scripts"
+sudo pacman -Q ${LXC_PACKAGES} &>/dev/null || sudo pacman --noconfirm -S ${LXC_PACKAGES} || exit 1
+
+# replace: lxc.net.0.type = empty
+if [ ! -e /etc/lxc/default.conf -o -z "`cat /etc/lxc/default.conf | grep 'lxc[.]net[.]0[.]type = veth'`" ]; then
+    cat <<EOF | sudo tee /etc/lxc/default.conf >/dev/null
+lxc.net.0.type = veth
+lxc.net.0.link = lxcbr0
+lxc.net.0.flags = up
+lxc.net.0.hwaddr = 00:16:3e:xx:xx:xx
+EOF
+else
+    [ -n "${DEBUG}" ] && echo "EXISTS: /etc/lxc/default.conf"
+fi
+
+if [ ! -e /etc/default/lxc-net ]; then
+    cat <<EOF | sudo tee /etc/default/lxc-net >/dev/null
+# Leave USE_LXC_BRIDGE as "true" if you want to use lxcbr0 for your
+# containers.  Set to "false" if you'll use virbr0 or another existing
+# bridge, or mavlan to your host's NIC.
+USE_LXC_BRIDGE="true"
+
+# If you change the LXC_BRIDGE to something other than lxcbr0, then
+# you will also need to update your /etc/lxc/default.conf as well as the
+# configuration (/var/lib/lxc/<container>/config) for any containers
+# already created using the default config to reflect the new bridge
+# name.
+# If you have the dnsmasq daemon installed, you'll also have to update
+# /etc/dnsmasq.d/lxc and restart the system wide dnsmasq daemon.
+LXC_BRIDGE="lxcbr0"
+LXC_ADDR="10.0.3.1"
+LXC_NETMASK="255.255.255.0"
+LXC_NETWORK="10.0.3.0/24"
+LXC_DHCP_RANGE="10.0.3.2,10.0.3.254"
+LXC_DHCP_MAX="253"
+# Uncomment the next line if you'd like to use a conf-file for the lxcbr0
+# dnsmasq.  For instance, you can use 'dhcp-host=mail1,10.0.3.100' to have
+# container 'mail1' always get ip address 10.0.3.100.
+#LXC_DHCP_CONFILE=/etc/lxc/dnsmasq.conf
+
+# Uncomment the next line if you want lxcbr0's dnsmasq to resolve the .lxc
+# domain.  You can then add "server=/lxc/10.0.3.1" (or your actual $LXC_ADDR)
+# to your system dnsmasq configuration file (normally /etc/dnsmasq.conf,
+# or /etc/NetworkManager/dnsmasq.d/lxc.conf on systems that use NetworkManager).
+# Once these changes are made, restart the lxc-net and network-manager services.
+# 'container1.lxc' will then resolve on your host.
+#LXC_DOMAIN="lxc"
+EOF
+else
+    [ -n "${DEBUG}" ] && echo "EXISTS: /etc/default/lxc-net"
+fi
+
+LIST_SERVICE="
+lxc-net
+lxc
+"
+
+for ITEM in `echo "${LIST_SERVICE}"`; do
+    if [ -n "`systemctl status ${ITEM} 2>/dev/null | grep 'disabled'`" ]; then
+        sudo systemctl enable ${ITEM}
+    fi
+
+    if [ -n "`systemctl status ${ITEM} 2>/dev/null | grep 'inactive'`" ]; then
+        sudo systemctl start ${ITEM}
+    fi
+done
+
+if [ ! -e /etc/systemd/system/user@.service.d/delegate.conf ]; then
+    sudo mkdir -p /etc/systemd/system/user@.service.d
+    cat <<EOF | sudo tee /etc/systemd/system/user@.service.d/delegate.conf >/dev/null
+[Service]
+Delegate=cpu cpuset io memory pids
+EOF
+    sudo systemctl daemon-reload
+else
+    [ -n "${DEBUG}" ] && echo "EXISTS: /etc/systemd/system/user@.service.d/delegate.conf"
+fi
+
+#
+# Configuration: Support for unprivileged LXC containers for regular user system space
+#
+
+[ -z "${USER}" -o "${USER}" != "$(id -un)" ] && USER=$(id -un)
+USER_HOME=/home/${USER}
+
+if [ ! -e /etc/subuid -o -z "`cat /etc/subuid 2>/dev/null | grep \"${USER}\"`" ]; then
+    cat <<EOF | sudo tee -a /etc/subuid >/dev/null
+${USER}:100000:65536
+EOF
+else
+    [ -n "${DEBUG}" ] && echo "EXISTS: /etc/subuid"
+fi
+
+if [ ! -e /etc/subgid -o -z "`cat /etc/subgid 2>/dev/null | grep \"${USER}\"`" ]; then
+    cat <<EOF | sudo tee -a /etc/subgid >/dev/null
+${USER}:100000:65536
+EOF
+else
+    [ -n "${DEBUG}" ] && echo "EXISTS: /etc/subgid"
+fi
+
+if [ ! -e /etc/lxc/lxc-usernet -o -z "`cat /etc/lxc/lxc-usernet | grep jon`" ]; then
+    cat <<EOF | sudo tee -a /etc/lxc/lxc-usernet >/dev/null
+${USER} veth lxcbr0 2
+EOF
+else
+    [ -n "${DEBUG}" ] && echo "EXISTS: /etc/lxc/lxc-usernet"
+fi
+
+#
+# Configuration: Support for unprivileged LXC containers for regular user home space
+#
+
+# ~/.config/lxc/default.conf
+LXC_DEFAULT_CONFIG=$(lxc-config lxc.default_config)
+[ -z "${LXC_DEFAULT_CONFIG}" ] && echo "ERROR: lxc-config lxc.default_config" >&2 && exit 1
+LXC_DEFAULT_CONFIG_PATH=`dirname ${LXC_DEFAULT_CONFIG}`
+[ ! -e ${LXC_DEFAULT_CONFIG_PATH} ] && mkdir -p ${LXC_DEFAULT_CONFIG_PATH}
+
+# ~/.local/share/lxc
+LXC_LXCPATH=$(lxc-config lxc.lxcpath)
+[ -z "${LXC_LXCPATH}" ] && echo "ERROR: lxc-config lxc.lxcpath" >&2 && exit 1
+[ ! -e ${LXC_LXCPATH} ] && mkdir -p ${LXC_LXCPATH}
+
+MS_UID="$(grep "${USER}" /etc/subuid  | cut -d : -f 2)"
+ME_UID="$(grep "${USER}" /etc/subuid  | cut -d : -f 3)"
+MS_GID="$(grep "${USER}" /etc/subgid  | cut -d : -f 2)"
+ME_GID="$(grep "${USER}" /etc/subgid  | cut -d : -f 3)"
+if [ ! -e ${LXC_DEFAULT_CONFIG} ]; then
+    cp /etc/lxc/default.conf ${LXC_DEFAULT_CONFIG_PATH}/
+    cat <<EOF | tee -a ${LXC_DEFAULT_CONFIG} >/dev/null
+lxc.idmap = u 0 ${MS_UID} ${ME_UID}
+lxc.idmap = g 0 ${MS_GID} ${ME_GID}
+EOF
+else
+    [ -n "${DEBUG}" ] && echo "EXISTS: ${LXC_DEFAULT_CONFIG}"
+fi
+
+LXC_PART=`lsblk -l | grep ' /home$' | sed 's|^\([^ ]\+\) .*|\1|'`
+[ -z "${LXC_PART}" ] && LXC_PART=`lsblk -l | grep ' /$' | sed 's|^\([^ ]\+\) .*|\1|'`
+LXC_PART_ACL=`sudo tune2fs -l /dev/${LXC_PART} | grep "Default mount options:" | grep acl`
+[ -z "${LXC_PART_ACL}" ] && echo "ERROR: ACL is not supported" >&2 && exit 1
+
+if [ -z "`getfacl -p ${USER_HOME} | grep \"user[:]${MS_UID}[:]--x\"`" ]; then
+    setfacl -m u:${MS_UID}:x ${USER_HOME} || exit 1
+fi
+
+if [ -z "`getfacl -p ${USER_HOME} | grep \"group[:]${MS_GID}[:]--x\"`" ]; then
+    setfacl -m g:${MS_GID}:x ${USER_HOME} || exit 1
+fi
+
+if [ -z "`getfacl -p ${USER_HOME}/.local | grep \"user[:]${MS_UID}[:]--x\"`" ]; then
+    setfacl -m u:${MS_UID}:x ${USER_HOME}/.local || exit 1
+fi
+
+if [ -z "`getfacl -p ${USER_HOME}/.local | grep \"group[:]${MS_GID}[:]--x\"`" ]; then
+    setfacl -m g:${MS_GID}:x ${USER_HOME}/.local || exit 1
+fi
+
+LXC_SYSTEMD_PATH=${USER_HOME}/.config/systemd/user
+LXC_SYSTEMD=${LXC_SYSTEMD_PATH}/lxc-autostart.service
+if [ ! -e ${LXC_SYSTEMD} ]; then
+    [ ! -e ${LXC_SYSTEMD_PATH} ] && mkdir -p ${LXC_SYSTEMD_PATH}
+    cat <<EOF | tee ${LXC_SYSTEMD} >/dev/null
+[Unit]
+Description="Run lxc-autostart"
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/lxc-autostart
+ExecStop=/usr/bin/lxc-autostart -s
+RemainAfterExit=1
+
+[Install]
+WantedBy=default.target
+EOF
+else
+    [ -n "${DEBUG}" ] && echo "EXISTS: ${LXC_SYSTEMD}"
+fi
+
+if [ -n "`systemctl --user status lxc-autostart 2>/dev/null | grep 'inactive'`" ]; then
+    systemctl --user enable lxc-autostart
+fi
+
+sudo loginctl disable-linger ${USER}
+

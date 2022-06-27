@@ -178,7 +178,7 @@ _lxc_setup() {
             __lxc_names
             return
             ;;
-        --status | -s | --autostart | -a | --destroy | -D | --config | -c | --unprivileged | -U | --systemd | -S )
+        --status | -s | --autostart | -a | --destroy | -D | --config | -c )
             # Only flags.
             ;;
     esac

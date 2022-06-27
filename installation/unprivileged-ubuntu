@@ -1,0 +1,119 @@
+#!/bin/bash
+DEBUG=
+
+[[ $EUID -eq 0 ]] && exit 1
+
+#
+# Configuration: Support for unprivileged LXC containers on ArchLinux hosts
+#
+
+sudo apt -y install lxc
+
+#
+# Configuration: Support for unprivileged LXC containers for regular user system space
+#
+
+[ -z "${USER}" -o "${USER}" != "$(id -un)" ] && USER=$(id -un)
+USER_HOME=/home/${USER}
+
+if [ ! -e /etc/subuid -o -z "`cat /etc/subuid 2>/dev/null | grep \"${USER}\"`" ]; then
+    cat <<EOF | sudo tee -a /etc/subuid >/dev/null
+${USER}:100000:65536
+EOF
+else
+    [ -n "${DEBUG}" ] && echo "EXISTS: /etc/subuid"
+fi
+
+if [ ! -e /etc/subgid -o -z "`cat /etc/subgid 2>/dev/null | grep \"${USER}\"`" ]; then
+    cat <<EOF | sudo tee -a /etc/subgid >/dev/null
+${USER}:100000:65536
+EOF
+else
+    [ -n "${DEBUG}" ] && echo "EXISTS: /etc/subgid"
+fi
+
+if [ ! -e /etc/lxc/lxc-usernet -o -z "`cat /etc/lxc/lxc-usernet | grep jon`" ]; then
+    cat <<EOF | sudo tee -a /etc/lxc/lxc-usernet >/dev/null
+${USER} veth lxcbr0 2
+EOF
+else
+    [ -n "${DEBUG}" ] && echo "EXISTS: /etc/lxc/lxc-usernet"
+fi
+
+#
+# Configuration: Support for unprivileged LXC containers for regular user home space
+#
+
+# ~/.config/lxc/default.conf
+LXC_DEFAULT_CONFIG=$(lxc-config lxc.default_config)
+[ -z "${LXC_DEFAULT_CONFIG}" ] && echo "ERROR: lxc-config lxc.default_config" >&2 && exit 1
+LXC_DEFAULT_CONFIG_PATH=`dirname ${LXC_DEFAULT_CONFIG}`
+[ ! -e ${LXC_DEFAULT_CONFIG_PATH} ] && mkdir -p ${LXC_DEFAULT_CONFIG_PATH}
+
+# ~/.local/share/lxc
+LXC_LXCPATH=$(lxc-config lxc.lxcpath)
+[ -z "${LXC_LXCPATH}" ] && echo "ERROR: lxc-config lxc.lxcpath" >&2 && exit 1
+[ ! -e ${LXC_LXCPATH} ] && mkdir -p ${LXC_LXCPATH}
+
+MS_UID="$(grep "${USER}" /etc/subuid  | cut -d : -f 2)"
+ME_UID="$(grep "${USER}" /etc/subuid  | cut -d : -f 3)"
+MS_GID="$(grep "${USER}" /etc/subgid  | cut -d : -f 2)"
+ME_GID="$(grep "${USER}" /etc/subgid  | cut -d : -f 3)"
+if [ ! -e ${LXC_DEFAULT_CONFIG} ]; then
+    cp /etc/lxc/default.conf ${LXC_DEFAULT_CONFIG_PATH}/
+    cat <<EOF | tee -a ${LXC_DEFAULT_CONFIG} >/dev/null
+lxc.idmap = u 0 ${MS_UID} ${ME_UID}
+lxc.idmap = g 0 ${MS_GID} ${ME_GID}
+EOF
+else
+    [ -n "${DEBUG}" ] && echo "EXISTS: ${LXC_DEFAULT_CONFIG}"
+fi
+
+LXC_PART=`lsblk -l | grep ' /home$' | sed 's|^\([^ ]\+\) .*|\1|'`
+[ -z "${LXC_PART}" ] && LXC_PART=`lsblk -l | grep ' /$' | sed 's|^\([^ ]\+\) .*|\1|'`
+LXC_PART_ACL=`sudo tune2fs -l /dev/${LXC_PART} | grep "Default mount options:" | grep acl`
+[ -z "${LXC_PART_ACL}" ] && echo "ERROR: ACL is not supported" >&2 && exit 1
+
+if [ -z "`getfacl -p ${USER_HOME} | grep \"user[:]${MS_UID}[:]--x\"`" ]; then
+    setfacl -m u:${MS_UID}:x ${USER_HOME} || exit 1
+fi
+
+if [ -z "`getfacl -p ${USER_HOME} | grep \"group[:]${MS_GID}[:]--x\"`" ]; then
+    setfacl -m g:${MS_GID}:x ${USER_HOME} || exit 1
+fi
+
+if [ -z "`getfacl -p ${USER_HOME}/.local | grep \"user[:]${MS_UID}[:]--x\"`" ]; then
+    setfacl -m u:${MS_UID}:x ${USER_HOME}/.local || exit 1
+fi
+
+if [ -z "`getfacl -p ${USER_HOME}/.local | grep \"group[:]${MS_GID}[:]--x\"`" ]; then
+    setfacl -m g:${MS_GID}:x ${USER_HOME}/.local || exit 1
+fi
+
+LXC_SYSTEMD_PATH=${USER_HOME}/.config/systemd/user
+LXC_SYSTEMD=${LXC_SYSTEMD_PATH}/lxc-autostart.service
+if [ ! -e ${LXC_SYSTEMD} ]; then
+    [ ! -e ${LXC_SYSTEMD_PATH} ] && mkdir -p ${LXC_SYSTEMD_PATH}
+    cat <<EOF | tee ${LXC_SYSTEMD} >/dev/null
+[Unit]
+Description="Run lxc-autostart"
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/lxc-autostart
+ExecStop=/usr/bin/lxc-autostart -s
+RemainAfterExit=1
+
+[Install]
+WantedBy=default.target
+EOF
+else
+    [ -n "${DEBUG}" ] && echo "EXISTS: ${LXC_SYSTEMD}"
+fi
+
+if [ -n "`systemctl --user status lxc-autostart 2>/dev/null | grep 'inactive'`" ]; then
+    systemctl --user enable lxc-autostart
+fi
+
+sudo loginctl disable-linger ${USER}
+
