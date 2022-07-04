@@ -225,8 +225,8 @@ if [ -n "${CONTAINER_USER}" -a ! -d "${CONTAINER_USER_HOME}" ]; then
     # update user password
     lxc-attach -n ${CONTAINER_NAME} -- passwd -d ${CONTAINER_USER}
     lxc-attach -n ${CONTAINER_NAME} -- passwd -e ${CONTAINER_USER}
-    echo "Container user: ${CONTAINER_USER}"
-    lxc-attach -n ${CONTAINER_NAME} -- su - ${CONTAINER_USER} -c exit
+    #echo "Container user: ${CONTAINER_USER}"
+    #lxc-attach -n ${CONTAINER_NAME} -- su - ${CONTAINER_USER} -c exit
 fi
 
 #

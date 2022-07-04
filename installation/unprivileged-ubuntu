@@ -34,7 +34,7 @@ fi
 
 if [ ! -e /etc/lxc/lxc-usernet -o -z "`cat /etc/lxc/lxc-usernet | grep jon`" ]; then
     cat <<EOF | sudo tee -a /etc/lxc/lxc-usernet >/dev/null
-${USER} veth lxcbr0 2
+${USER} veth lxcbr0 16
 EOF
 else
     [ -n "${DEBUG}" ] && echo "EXISTS: /etc/lxc/lxc-usernet"
