@@ -6,7 +6,15 @@ INSTALL_DIR=`dirname $0`
 LOCAL_BIN_DIR=~/.local/bin
 COMPLETIONS_DIR=~/.local/share/bash-completion/completions
 
-[ -f ${INSTALL_DIR}/lxc-all ] || exit 1
+[ ! -e ${INSTALL_DIR}/lxc-all ] && echo "ERROR: Unable to find lxc-all (local)" && exit 1
+
+LXC_DEFAULT_CONFIG=`lxc-config lxc.default_config 2>/dev/null`
+[ -z "${LXC_DEFAULT_CONFIG}" ] && echo "ERROR: Unable to find or use lxc-config (system)" && exit 1
+
+if [ ! -e ${LXC_DEFAULT_CONFIG} ]; then
+    [ -e /etc/pacman.conf ] && ${INSTALL_DIR}/installation/unprivileged-archlinux
+    [ -e /etc/apt/sources.list ] && ${INSTALL_DIR}/installation/unprivileged-ubuntu
+fi
 
 mkdir -p ${LOCAL_BIN_DIR}
 cp -p ${INSTALL_DIR}/.lxc-lib ${LOCAL_BIN_DIR}/
@@ -14,7 +22,7 @@ cp -p ${INSTALL_DIR}/lxc-* ${LOCAL_BIN_DIR}/
 
 mkdir -p ${COMPLETIONS_DIR}
 cp -p ${INSTALL_DIR}/completions/lxc-build ${COMPLETIONS_DIR}/
-for lxc_ln in `ls -1 ${INSTALL_DIR}/lxc-*`; do
+for lxc_ln in `ls -1 ${INSTALL_DIR} | grep lxc-`; do
     [ -z "`echo \"${lxc_ln}\" | grep 'lxc-build'`" ] && \
         [ ! -e ${COMPLETIONS_DIR}/${lxc_ln} ] && \
         ln -s lxc-build ${COMPLETIONS_DIR}/${lxc_ln}

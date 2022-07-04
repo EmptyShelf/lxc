@@ -11,7 +11,7 @@ LXC_PACKAGES="lxc arch-install-scripts"
 sudo pacman -Q ${LXC_PACKAGES} &>/dev/null || sudo pacman --noconfirm -S ${LXC_PACKAGES} || exit 1
 
 # replace: lxc.net.0.type = empty
-if [ ! -e /etc/lxc/default.conf -o -z "`cat /etc/lxc/default.conf | grep 'lxc[.]net[.]0[.]type = veth'`" ]; then
+if [ ! -e /etc/lxc/default.conf -o -z "`cat /etc/lxc/default.conf 2>/dev/null | grep 'lxc[.]net[.]0[.]type = veth'`" ]; then
     cat <<EOF | sudo tee /etc/lxc/default.conf >/dev/null
 lxc.net.0.type = veth
 lxc.net.0.link = lxcbr0
@@ -108,7 +108,7 @@ else
     [ -n "${DEBUG}" ] && echo "EXISTS: /etc/subgid"
 fi
 
-if [ ! -e /etc/lxc/lxc-usernet -o -z "`cat /etc/lxc/lxc-usernet | grep jon`" ]; then
+if [ ! -e /etc/lxc/lxc-usernet -o -z "`cat /etc/lxc/lxc-usernet 2>/dev/null | grep jon`" ]; then
     cat <<EOF | sudo tee -a /etc/lxc/lxc-usernet >/dev/null
 ${USER} veth lxcbr0 2
 EOF

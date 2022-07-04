@@ -30,7 +30,7 @@ LXC_DEFAULT_CONFIG_PATH=`dirname ${LXC_DEFAULT_CONFIG}`
 LXC_LXCPATH=`lxc-config lxc.lxcpath`
 LXC_DOWNLOAD=/usr/share/lxc/templates/lxc-download
 
-if [ ! -e ${LXC_DEFAULT_CONFIG} ]; then
+if [ -z "${LXC_DEFAULT_CONFIG}" -o ! -e ${LXC_DEFAULT_CONFIG} ]; then
     [ -e /etc/pacman.conf ] && echo "ERROR: No configuration (run: ./installation/unprivileged-archlinux)" >&2 && exit 1
     [ -e /etc/apt/sources.list ] && echo "ERROR: No configuration (run: ./installation/unprivileged-ubuntu)" >&2 && exit 1
 fi
